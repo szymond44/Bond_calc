@@ -305,7 +305,7 @@ if st.session_state.results:
         title=f"Projekcja kapitału — {current_result['label']}",
         segments=current_result["segments"],
     )
-    st.pyplot(fig)
+    st.pyplot(fig, use_container_width=True)
     seq_txt = "  →  ".join(f"**{seg['name']}** (mies. {seg['start']}–{seg['end']})" for seg in current_result["segments"])
     st.caption(f"Kolejność w strategii: {seq_txt}")
     st.caption("Przerywane pionowe linie oznaczają moment, w którym kończy się jedna obligacja, a zaczyna kolejna w sekwencji.")

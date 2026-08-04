@@ -18,7 +18,7 @@ def plot_fanchart(stats_dict, time_horizon, tolerance_percent=5, title=None, seg
 
     months = np.arange(time_horizon)
 
-    fig, ax = plt.subplots(figsize=(11, 5.5))
+    fig, ax = plt.subplots(figsize=(11, 5.5), dpi=300)
 
     ax.fill_between(
         months,
@@ -60,6 +60,7 @@ def plot_fanchart(stats_dict, time_horizon, tolerance_percent=5, title=None, seg
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, loc: "{:,}".format(int(x)).replace(',', ' ')))
 
     ax.grid(True, linestyle=':', alpha=0.6)
+
     for spine in ax.spines.values():
         spine.set_visible(False)
     
