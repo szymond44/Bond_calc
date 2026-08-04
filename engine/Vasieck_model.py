@@ -41,10 +41,6 @@ def _is_policy_rate(col_name):
 # NBP's official continuous inflation target is 2.5% (tolerance band 1.5%-3.5%).
 # We anchor CPI's long-run OU mean here instead of the OLS-implied value, since
 # the OLS intercept is pulled around by whichever regime dominates the sample
-# (see calibration-window testing: it swung from ~3.0% to ~6.1% just by
-# changing the start date). The target is what the simulation should converge
-# to over long horizons under a credible inflation-targeting regime, which is
-# the thing that actually matters for multi-year bond projections.
 CPI_TARGET = 0.025
 
 # Floor on the OU mean-reversion speed, expressed as a half-life. The raw OLS
@@ -100,8 +96,6 @@ def _calibrate_ou_params(col_name, series, dt, target_override=None, min_half_li
         'a': a,
         'b': b,
         'sigma': sigma,
-        # kept for transparency/debugging -- what the raw regression said
-        # before any override/floor was applied
         'a_ols': a_ols,
         'b_ols': b_ols,
     }
@@ -137,9 +131,6 @@ def _calibrate_jump_params(col_name, series, anchor_series, direction_bias=0.8, 
     if len(changes) > 0:
         step_sizes = changes.abs().values.astype(float)
     else:
-        # No historical changes observed in the calibration window; fall back
-        # to a conservative single default step. p_change will be 0 so this
-        # is never actually sampled in practice.
         step_sizes = np.array([0.0025])
 
     if anchor_series is not None:
