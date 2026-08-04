@@ -8,7 +8,7 @@ def plot_fanchart(stats_dict, time_horizon, tolerance_percent=5, title=None, seg
 
     segments: optional list of dicts [{"name": str, "start": int, "end": int}, ...]
     describing which bond covers which month range within the strategy. When provided,
-    subtle grey dashed lines + small labels mark where one bond ends and the next begins,
+    drak black dashed lines + small labels mark where one bond ends and the next begins,
     without altering the existing fanchart colors.
     """
 
@@ -37,12 +37,12 @@ def plot_fanchart(stats_dict, time_horizon, tolerance_percent=5, title=None, seg
         for seg in segments[:-1]:
             boundary = seg["end"]
             if 0 < boundary < time_horizon:
-                ax.axvline(x=boundary, color='#888888', linestyle=':', linewidth=1, alpha=0.6, zorder=1)
+                ax.axvline(x=boundary, color='#000000', linestyle=':', linewidth=1, alpha=0.6, zorder=1)
 
         for i, seg in enumerate(segments):
             width_frac = (seg["end"] - seg["start"]) / time_horizon
             if width_frac < 0.035:
-                continue  # too narrow for readable text; the boundary line still marks it
+                continue  
             mid = (seg["start"] + seg["end"]) / 2
             row_y = 0.03 if i % 2 == 0 else 0.10
             ax.text(
