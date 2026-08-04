@@ -1,4 +1,4 @@
-from interest_rate_calculator import interest_rate_calculator
+from simulation.interest_rate_calculator import interest_rate_calculator
 
 def get_bond_rates(bond_dict, paths_map, num_sim, global_start=0):
 

@@ -2,11 +2,11 @@ import numpy as np
 import math
 
 
-def interest_rate_calculator(timeframe_months, bonus_length, bonus_rate, margin, capitalisation_period, index_paths, num_sim, global_start_month=0): 
+def interest_rate_calculator(timeframe_months, bonus_length, bonus_rate, margin, capitalisation_period, index_paths, num_sim, global_start_month=0):
     periods_num = math.ceil(timeframe_months / capitalisation_period)
-    macro_sim_matrix = np.zeros((num_sim, timeframe_months)) 
+    macro_sim_matrix = np.zeros((num_sim, timeframe_months))
     path_len = index_paths.shape[1]
-    
+
     for period in range(periods_num):
         start_month = period * capitalisation_period
         end_month = min((period + 1) * capitalisation_period, timeframe_months)
@@ -24,5 +24,5 @@ def interest_rate_calculator(timeframe_months, bonus_length, bonus_rate, margin,
         if bonus_rate > 0 and start_month < bonus_length:
             bonus_end = min(bonus_length, end_month)
             macro_sim_matrix[:, start_month:bonus_end] = bonus_rate
-            
+
     return macro_sim_matrix, timeframe_months
