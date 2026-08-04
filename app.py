@@ -9,6 +9,7 @@ from engine.Vasieck_model import (
     params_calculations,
     simulate_paths,
 )
+from engine.strategy_horizon import calculate_strategy_horizon
 from simulation.simulate_strategy import simulate_strategy
 from visualisation.calculate_stats import calculate_statistics
 from visualisation.plot_chart import plot_fanchart
@@ -36,26 +37,65 @@ def bond_summary_line(bond):
     return years, horizon_txt, bonus_txt
 
 
+def strategy_label(bond_names):
+    return " → ".join(bond_names)
+
+
+def strategy_total_months(bond_names):
+    return calculate_strategy_horizon([BONDS_CONFIG[n] for n in bond_names])
+
+
+def strategy_segments(bond_names):
+    """Cumulative month ranges for each bond in the sequence, for chart annotation."""
+    segments = []
+    cursor = 0
+    for name in bond_names:
+        months = BONDS_CONFIG[name]["timeframe_months"]
+        segments.append({"name": name, "start": cursor, "end": cursor + months})
+        cursor += months
+    return segments
+
+
 # ----------------------------------------------------------------------------
 # Session state setup
 # ----------------------------------------------------------------------------
-if "selected_bonds" not in st.session_state:
-    st.session_state.selected_bonds = []
+if "current_build" not in st.session_state:
+    st.session_state.current_build = []          # bonds being added to the strategy in progress
+if "saved_strategies" not in st.session_state:
+    st.session_state.saved_strategies = []        # list[list[str]], up to MAX_STRATEGIES
 if "results" not in st.session_state:
     st.session_state.results = None
 if "current_idx" not in st.session_state:
     st.session_state.current_idx = 0
 
 
-def toggle_bond(name):
-    sel = st.session_state.selected_bonds
-    if name in sel:
-        sel.remove(name)
-    else:
-        if len(sel) >= MAX_STRATEGIES:
-            st.warning(f"Możesz porównać maksymalnie {MAX_STRATEGIES} strategie naraz. Odznacz jedną, aby dodać kolejną.")
-        else:
-            sel.append(name)
+def add_to_build(name):
+    st.session_state.current_build.append(name)
+
+
+def undo_last():
+    if st.session_state.current_build:
+        st.session_state.current_build.pop()
+
+
+def clear_build():
+    st.session_state.current_build = []
+
+
+def save_strategy():
+    if not st.session_state.current_build:
+        return
+    if len(st.session_state.saved_strategies) >= MAX_STRATEGIES:
+        return
+    st.session_state.saved_strategies.append(list(st.session_state.current_build))
+    st.session_state.current_build = []
+    st.session_state.results = None
+
+
+def delete_strategy(idx):
+    st.session_state.saved_strategies.pop(idx)
+    st.session_state.results = None
+    st.session_state.current_idx = 0
 
 
 # ----------------------------------------------------------------------------
@@ -84,45 +124,78 @@ initial_capital = st.number_input(
 st.divider()
 
 # ----------------------------------------------------------------------------
-# Step 2: Bond blocks
+# Step 2: Build strategies (sequences of bonds)
 # ----------------------------------------------------------------------------
-st.subheader(f"2. Wybierz strategie do porównania (maks. {MAX_STRATEGIES})")
-st.caption("Kliknij kartę obligacji, aby dodać ją do porównania.")
+st.subheader(f"2. Zbuduj strategie do porównania (maks. {MAX_STRATEGIES})")
+st.caption(
+    "Strategia to sekwencja obligacji ułożonych jedna po drugiej (np. 3M + 1Y + 12Y). "
+    "Kliknij obligacje w kolejności, w jakiej mają następować po sobie, a następnie zapisz strategię."
+)
 
-bond_names = list(BONDS_CONFIG.keys())
-cols_per_row = 4
-rows = [bond_names[i:i + cols_per_row] for i in range(0, len(bond_names), cols_per_row)]
+build_col, saved_col = st.columns([3, 2])
 
-for row in rows:
-    cols = st.columns(len(row))
-    for col, name in zip(cols, row):
-        bond = BONDS_CONFIG[name]
-        years, horizon_txt, bonus_txt = bond_summary_line(bond)
-        is_selected = name in st.session_state.selected_bonds
+with build_col:
+    st.markdown("**Buduj bieżącą strategię**")
 
-        with col:
-            with st.container(border=True):
-                st.markdown(f"**{name}**")
-                st.caption(INDEX_LABELS.get(bond["index_type"], bond["index_type"]))
-                st.write(f"⏳ Okres: {horizon_txt}")
-                st.write(f"🎁 Bonus: {bonus_txt}")
-                st.write(f"➕ Marża: {bond['margin']*100:.2f}%")
-                st.write(f"🔄 Kapitalizacja: co {bond['capitalisation_period']} mies.")
-                btn_label = "✅ Wybrano" if is_selected else "➕ Dodaj do porównania"
-                st.button(
-                    btn_label,
-                    key=f"btn_{name}",
-                    type="primary" if is_selected else "secondary",
-                    use_container_width=True,
-                    on_click=toggle_bond,
-                    args=(name,),
-                )
+    bond_names = list(BONDS_CONFIG.keys())
+    cols_per_row = 4
+    rows = [bond_names[i:i + cols_per_row] for i in range(0, len(bond_names), cols_per_row)]
 
-selected = st.session_state.selected_bonds
-if selected:
-    st.success(f"Wybrane strategie ({len(selected)}/{MAX_STRATEGIES}): {', '.join(selected)}")
-else:
-    st.info("Nie wybrano jeszcze żadnej strategii.")
+    build_disabled = len(st.session_state.saved_strategies) >= MAX_STRATEGIES
+
+    for row in rows:
+        cols = st.columns(len(row))
+        for col, name in zip(cols, row):
+            bond = BONDS_CONFIG[name]
+            years, horizon_txt, bonus_txt = bond_summary_line(bond)
+
+            with col:
+                with st.container(border=True):
+                    st.markdown(f"**{name}**")
+                    st.caption(INDEX_LABELS.get(bond["index_type"], bond["index_type"]))
+                    st.write(f"⏳ {horizon_txt}")
+                    st.write(f"🎁 {bonus_txt}")
+                    st.write(f"➕ Marża: {bond['margin']*100:.2f}%")
+                    st.button(
+                        "➕ Dodaj do sekwencji",
+                        key=f"btn_{name}",
+                        use_container_width=True,
+                        on_click=add_to_build,
+                        args=(name,),
+                        disabled=build_disabled,
+                    )
+
+    st.write("")
+    current = st.session_state.current_build
+    if current:
+        total_m = strategy_total_months(current)
+        st.info(f"**Bieżąca sekwencja:** {strategy_label(current)}  \n⏳ Łącznie: {total_m} mies. (~{total_m/12:.1f} lat)")
+    else:
+        st.caption("Bieżąca sekwencja jest pusta — dodaj przynajmniej jedną obligację.")
+
+    b1, b2, b3 = st.columns(3)
+    b1.button("↩️ Cofnij ostatnią", on_click=undo_last, use_container_width=True, disabled=not current)
+    b2.button("🗑️ Wyczyść", on_click=clear_build, use_container_width=True, disabled=not current)
+    b3.button(
+        "💾 Zapisz strategię",
+        type="primary",
+        use_container_width=True,
+        on_click=save_strategy,
+        disabled=(not current) or build_disabled,
+    )
+    if build_disabled:
+        st.warning(f"Zapisano już maksymalną liczbę strategii ({MAX_STRATEGIES}). Usuń jedną, aby dodać nową.")
+
+with saved_col:
+    st.markdown(f"**Zapisane strategie ({len(st.session_state.saved_strategies)}/{MAX_STRATEGIES})**")
+    if not st.session_state.saved_strategies:
+        st.caption("Brak zapisanych strategii.")
+    for i, strat in enumerate(st.session_state.saved_strategies):
+        with st.container(border=True):
+            total_m = strategy_total_months(strat)
+            st.write(f"**Strategia {i + 1}:** {strategy_label(strat)}")
+            st.caption(f"⏳ Łącznie: {total_m} mies. (~{total_m/12:.1f} lat)")
+            st.button("✕ Usuń", key=f"del_{i}", on_click=delete_strategy, args=(i,))
 
 st.divider()
 
@@ -152,15 +225,16 @@ st.divider()
 # ----------------------------------------------------------------------------
 # Step 4: Run
 # ----------------------------------------------------------------------------
-run = st.button("📊 Oblicz i porównaj strategie", type="primary", disabled=(len(selected) == 0))
+saved = st.session_state.saved_strategies
+run = st.button("📊 Oblicz i porównaj strategie", type="primary", disabled=(len(saved) == 0))
 
-if run and selected:
+if run and saved:
     with st.spinner("Kalibruję model i uruchamiam symulację Monte Carlo..."):
         try:
             matrix = load_data(["raw_nbp", "raw_cpi"], cutoff_date=CALIBRATION_CUTOFF)
 
-            strategies = [[BONDS_CONFIG[name]] for name in selected]
-            horizon = max(sum(b["timeframe_months"] for b in s) for s in strategies)
+            strategy_bond_lists = [[BONDS_CONFIG[n] for n in strat] for strat in saved]
+            horizon = max(calculate_strategy_horizon(s) for s in strategy_bond_lists)
 
             np.random.seed(42)
             params_list = params_calculations(matrix)
@@ -175,9 +249,9 @@ if run and selected:
             }
 
             results = []
-            for name, strat in zip(selected, strategies):
+            for strat_names, strat_bonds in zip(saved, strategy_bond_lists):
                 global_matrix, _ = simulate_strategy(
-                    strategy=strat,
+                    strategy=strat_bonds,
                     initial_capital=initial_capital,
                     paths_mapping=paths_mapping,
                     num_sim=NUM_SIM,
@@ -186,10 +260,11 @@ if run and selected:
                 )
                 stats = calculate_statistics(global_matrix, initial_capital)
                 results.append({
-                    "name": name,
-                    "bond": BONDS_CONFIG[name],
+                    "names": strat_names,
+                    "label": strategy_label(strat_names),
                     "stats": stats,
-                    "horizon": strat[0]["timeframe_months"],
+                    "horizon": calculate_strategy_horizon(strat_bonds),
+                    "segments": strategy_segments(strat_names),
                 })
 
             st.session_state.results = results
@@ -207,7 +282,7 @@ if st.session_state.results:
     results = st.session_state.results
     n = len(results)
     idx = st.session_state.current_idx % n
-    current = results[idx]
+    current_result = results[idx]
 
     nav_left, nav_title, nav_right = st.columns([1, 6, 1])
     with nav_left:
@@ -220,15 +295,23 @@ if st.session_state.results:
             st.rerun()
     with nav_title:
         st.markdown(
-            f"<h2 style='text-align:center;margin:0;'>{current['name']}</h2>"
+            f"<h3 style='text-align:center;margin:0;'>{current_result['label']}</h3>"
             f"<p style='text-align:center;color:gray;'>Strategia {idx + 1} z {n}</p>",
             unsafe_allow_html=True,
         )
 
-    fig = plot_fanchart(current["stats"], current["horizon"], title=f"Projekcja kapitału — {current['name']}")
+    fig = plot_fanchart(
+        current_result["stats"],
+        current_result["horizon"],
+        title=f"Projekcja kapitału — {current_result['label']}",
+        segments=current_result["segments"],
+    )
     st.pyplot(fig)
+    seq_txt = "  →  ".join(f"**{seg['name']}** (mies. {seg['start']}–{seg['end']})" for seg in current_result["segments"])
+    st.caption(f"Kolejność w strategii: {seq_txt}")
+    st.caption("Przerywane pionowe linie oznaczają moment, w którym kończy się jedna obligacja, a zaczyna kolejna w sekwencji.")
 
-    summary = current["stats"]["summary"]
+    summary = current_result["stats"]["summary"]
     m1, m2, m3 = st.columns(3)
     m1.metric("Pesymistyczny wynik (5%)", f"{summary['worst_wealth']:,.0f} PLN".replace(",", " "),
                delta=f"{summary['worst_profit']:,.0f} PLN".replace(",", " "))
@@ -237,25 +320,26 @@ if st.session_state.results:
     m3.metric("Optymistyczny wynik (95%)", f"{summary['best_wealth']:,.0f} PLN".replace(",", " "),
                delta=f"{summary['best_profit']:,.0f} PLN".replace(",", " "))
 
-    with st.expander("Szczegóły produktu"):
-        b = current["bond"]
-        years, horizon_txt, bonus_txt = bond_summary_line(b)
-        st.write(f"- **Typ oprocentowania:** {INDEX_LABELS.get(b['index_type'], b['index_type'])}")
-        st.write(f"- **Okres:** {horizon_txt}")
-        st.write(f"- **Bonus na start:** {bonus_txt}")
-        st.write(f"- **Marża ponad indeks:** {b['margin']*100:.2f}%")
-        st.write(f"- **Kapitalizacja odsetek co:** {b['capitalisation_period']} mies.")
-        st.write(f"- **Kapitalizuje odsetki (dolicza do kapitału bez wypłaty):** {'Tak' if b['does_capitalise'] else 'Nie'}")
-        st.write(f"- **Kara za wcześniejszy wykup:** {b['early_buyout_penalty']*100:.2f}%")
+    with st.expander("Szczegóły obligacji w tej strategii"):
+        for seg in current_result["segments"]:
+            b = BONDS_CONFIG[seg["name"]]
+            years, horizon_txt, bonus_txt = bond_summary_line(b)
+            st.markdown(f"**{seg['name']}** (miesiące {seg['start']}–{seg['end']})")
+            st.write(f"- Typ oprocentowania: {INDEX_LABELS.get(b['index_type'], b['index_type'])}")
+            st.write(f"- Okres: {horizon_txt}")
+            st.write(f"- Bonus na start: {bonus_txt}")
+            st.write(f"- Marża ponad indeks: {b['margin']*100:.2f}%")
+            st.write(f"- Kapitalizacja odsetek co: {b['capitalisation_period']} mies.")
+            st.write(f"- Kapitalizuje odsetki: {'Tak' if b['does_capitalise'] else 'Nie'}")
+            st.write(f"- Kara za wcześniejszy wykup: {b['early_buyout_penalty']*100:.2f}%")
 
-    # Quick side-by-side comparison table across all selected strategies
     st.divider()
-    st.subheader("Porównanie wszystkich wybranych strategii")
+    st.subheader("Porównanie wszystkich zapisanych strategii")
     comp_rows = []
     for r in results:
         s = r["stats"]["summary"]
         comp_rows.append({
-            "Strategia": r["name"],
+            "Strategia": r["label"],
             "Okres (mies.)": r["horizon"],
             "Pesymistyczny (PLN)": round(s["worst_wealth"], 0),
             "Średni (PLN)": round(s["mean_wealth"], 0),
@@ -263,4 +347,4 @@ if st.session_state.results:
         })
     st.dataframe(comp_rows, use_container_width=True, hide_index=True)
 else:
-    st.caption("Wybierz strategie i kliknij „Oblicz i porównaj strategie”, aby zobaczyć wyniki.")
+    st.caption("Zbuduj i zapisz strategie, a następnie kliknij „Oblicz i porównaj strategie”, aby zobaczyć wyniki.")
