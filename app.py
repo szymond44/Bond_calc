@@ -101,9 +101,8 @@ def delete_strategy(idx):
 # ----------------------------------------------------------------------------
 # Header
 # ----------------------------------------------------------------------------
-st.title("💰 Symulator Strategii Obligacji Skarbowych")
+st.title("Symulator zysku z Obligacji Skarbowych")
 st.caption(
-    "Beta MVP — symulacja Monte Carlo (model Vasicka skalibrowany na danych historycznych NBP / CPI). "
     "Wyniki to projekcje, a nie gwarancja przyszłych zwrotów."
 )
 
@@ -116,7 +115,7 @@ st.subheader("1. Kwota inwestycji")
 initial_capital = st.number_input(
     "Ile chcesz zainwestować (PLN)?",
     min_value=100.0,
-    max_value=10_000_000.0,
+    max_value=10_000_000_000.0,
     value=10000.0,
     step=500.0,
 )
@@ -153,9 +152,9 @@ with build_col:
                 with st.container(border=True):
                     st.markdown(f"**{name}**")
                     st.caption(INDEX_LABELS.get(bond["index_type"], bond["index_type"]))
-                    st.write(f"⏳ {horizon_txt}")
-                    st.write(f"🎁 {bonus_txt}")
-                    st.write(f"➕ Marża: {bond['margin']*100:.2f}%")
+                    st.write(f" {horizon_txt}")
+                    st.write(f" {bonus_txt}")
+                    st.write(f" Marża: {bond['margin']*100:.2f}%")
                     st.button(
                         "➕ Dodaj do sekwencji",
                         key=f"btn_{name}",
@@ -169,15 +168,15 @@ with build_col:
     current = st.session_state.current_build
     if current:
         total_m = strategy_total_months(current)
-        st.info(f"**Bieżąca sekwencja:** {strategy_label(current)}  \n⏳ Łącznie: {total_m} mies. (~{total_m/12:.1f} lat)")
+        st.info(f"**Bieżąca sekwencja:** {strategy_label(current)}  \n Łącznie: {total_m} mies. (~{total_m/12:.1f} lat)")
     else:
         st.caption("Bieżąca sekwencja jest pusta — dodaj przynajmniej jedną obligację.")
 
     b1, b2, b3 = st.columns(3)
-    b1.button("↩️ Cofnij ostatnią", on_click=undo_last, use_container_width=True, disabled=not current)
-    b2.button("🗑️ Wyczyść", on_click=clear_build, use_container_width=True, disabled=not current)
+    b1.button("Cofnij ostatnią", on_click=undo_last, use_container_width=True, disabled=not current)
+    b2.button("Wyczyść", on_click=clear_build, use_container_width=True, disabled=not current)
     b3.button(
-        "💾 Zapisz strategię",
+        "Zapisz strategię",
         type="primary",
         use_container_width=True,
         on_click=save_strategy,
@@ -194,8 +193,8 @@ with saved_col:
         with st.container(border=True):
             total_m = strategy_total_months(strat)
             st.write(f"**Strategia {i + 1}:** {strategy_label(strat)}")
-            st.caption(f"⏳ Łącznie: {total_m} mies. (~{total_m/12:.1f} lat)")
-            st.button("✕ Usuń", key=f"del_{i}", on_click=delete_strategy, args=(i,))
+            st.caption(f"Łącznie: {total_m} mies. (~{total_m/12:.1f} lat)")
+            st.button("Usuń", key=f"del_{i}", on_click=delete_strategy, args=(i,))
 
 st.divider()
 
@@ -226,7 +225,7 @@ st.divider()
 # Step 4: Run
 # ----------------------------------------------------------------------------
 saved = st.session_state.saved_strategies
-run = st.button("📊 Oblicz i porównaj strategie", type="primary", disabled=(len(saved) == 0))
+run = st.button("Oblicz i porównaj strategie", type="primary", disabled=(len(saved) == 0))
 
 if run and saved:
     with st.spinner("Kalibruję model i uruchamiam symulację Monte Carlo..."):
@@ -313,11 +312,11 @@ if st.session_state.results:
 
     summary = current_result["stats"]["summary"]
     m1, m2, m3 = st.columns(3)
-    m1.metric("Pesymistyczny wynik (5%)", f"{summary['worst_wealth']:,.0f} PLN".replace(",", " "),
+    m1.metric("Pesymistyczny wynik (Najgorsze 5% symulacji)", f"{summary['worst_wealth']:,.0f} PLN".replace(",", " "),
                delta=f"{summary['worst_profit']:,.0f} PLN".replace(",", " "))
     m2.metric("Średni oczekiwany wynik", f"{summary['mean_wealth']:,.0f} PLN".replace(",", " "),
                delta=f"{summary['mean_profit']:,.0f} PLN".replace(",", " "))
-    m3.metric("Optymistyczny wynik (95%)", f"{summary['best_wealth']:,.0f} PLN".replace(",", " "),
+    m3.metric("Optymistyczny wynik (Najlepsze 5% symulacji)", f"{summary['best_wealth']:,.0f} PLN".replace(",", " "),
                delta=f"{summary['best_profit']:,.0f} PLN".replace(",", " "))
 
     with st.expander("Szczegóły obligacji w tej strategii"):
