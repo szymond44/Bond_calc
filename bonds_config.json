@@ -1,0 +1,90 @@
+{
+  "OTS_3M": {
+    "is_bonus": 1,
+    "bonus_length": 3,
+    "bonus_rate": 0.02,
+    "margin": 0.0,
+    "index_type": "fixed",
+    "early_buyout_penalty": 0.0,
+    "timeframe_months": 3,
+    "capitalisation_period": 3,
+    "does_capitalise": false
+  },
+  "ROR_1Y": {
+    "is_bonus": 1,
+    "bonus_length": 1,
+    "bonus_rate": 0.04,
+    "margin": 0.0,
+    "index_type": "nbp",
+    "early_buyout_penalty": 0.005,
+    "timeframe_months": 12,
+    "capitalisation_period": 1,
+    "does_capitalise": false
+  },
+  "DOR_2Y": {
+    "is_bonus": 1,
+    "bonus_length": 1,
+    "bonus_rate": 0.0415,
+    "margin": 0.0015,
+    "index_type": "nbp",
+    "early_buyout_penalty": 0.007,
+    "timeframe_months": 24,
+    "capitalisation_period": 1,
+    "does_capitalise": false
+  },
+  "TOS_3Y": {
+    "is_bonus": 1,
+    "bonus_length": 36,
+    "bonus_rate": 0.044,
+    "margin": 0.0,
+    "index_type": "fixed",
+    "early_buyout_penalty": 0.01,
+    "timeframe_months": 36,
+    "capitalisation_period": 12,
+    "does_capitalise": true
+  },
+  "COI_4Y": {
+    "is_bonus": 1,
+    "bonus_length": 12,
+    "bonus_rate": 0.0475,
+    "margin": 0.015,
+    "index_type": "cpi",
+    "early_buyout_penalty": 0.02,
+    "timeframe_months": 48,
+    "capitalisation_period": 12,
+    "does_capitalise": false
+  },
+  "EDO_10Y": {
+    "is_bonus": 1,
+    "bonus_length": 12,
+    "bonus_rate": 0.0535,
+    "margin": 0.02,
+    "index_type": "cpi",
+    "early_buyout_penalty": 0.03,
+    "timeframe_months": 120,
+    "capitalisation_period": 12,
+    "does_capitalise": true
+  },
+  "ROS_6Y": {
+    "is_bonus": 1,
+    "bonus_length": 12,
+    "bonus_rate": 0.05,
+    "margin": 0.02,
+    "index_type": "cpi",
+    "early_buyout_penalty": 0.007,
+    "timeframe_months": 72,
+    "capitalisation_period": 12,
+    "does_capitalise": true
+  },
+  "ROD_12Y": {
+    "is_bonus": 1,
+    "bonus_length": 12,
+    "bonus_rate": 0.056,
+    "margin": 0.025,
+    "index_type": "cpi",
+    "early_buyout_penalty": 0.02,
+    "timeframe_months": 144,
+    "capitalisation_period": 12,
+    "does_capitalise": true
+  }
+}
