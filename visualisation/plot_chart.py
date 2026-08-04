@@ -60,6 +60,9 @@ def plot_fanchart(stats_dict, time_horizon, tolerance_percent=5, title=None, seg
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, loc: "{:,}".format(int(x)).replace(',', ' ')))
 
     ax.grid(True, linestyle=':', alpha=0.6)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    
     ax.legend(loc='upper left')
     fig.tight_layout()
 
