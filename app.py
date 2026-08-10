@@ -12,6 +12,7 @@ from engine.Vasieck_model import (
 from engine.strategy_horizon import calculate_strategy_horizon
 from simulation.simulate_strategy import simulate_strategy
 from visualisation.calculate_stats import calculate_statistics
+from visualisation.calculate_cash_erosion import calculate_cash_erosion_paths, cash_erosion_summary_at
 from visualisation.plot_chart import plot_fanchart
 
 MAX_STRATEGIES = 4
@@ -265,6 +266,12 @@ if run and saved:
                 "fixed": paths[0],
             }
 
+            # Real (inflation-eroded) value of the same initial_capital if it had
+            # just sat as uninvested cash, computed from the same simulated CPI
+            # paths driving the bond fanchart -- so it's a fair, apples-to-apples
+            # opportunity-cost benchmark for every strategy below.
+            cash_erosion_paths = calculate_cash_erosion_paths(paths[1], initial_capital, horizon)
+
             results = []
             for strat, strat_bonds in zip(saved, strategy_bond_lists):
                 global_matrix, _ = simulate_strategy(
@@ -276,6 +283,8 @@ if run and saved:
                     reinvest=strat["reinvest"],
                 )
                 stats = calculate_statistics(global_matrix, initial_capital)
+                strat_horizon = calculate_strategy_horizon(strat_bonds)
+                cash_summary = cash_erosion_summary_at(cash_erosion_paths, strat_horizon - 1, initial_capital)
                 results.append({
                     "names": strat["bonds"],
                     "label": strategy_label(strat["bonds"]),
@@ -283,8 +292,9 @@ if run and saved:
                     "reinvest": strat["reinvest"],
                     "belka_tax_rate": strat["belka_tax_rate"],
                     "stats": stats,
-                    "horizon": calculate_strategy_horizon(strat_bonds),
+                    "horizon": strat_horizon,
                     "segments": strategy_segments(strat["bonds"]),
+                    "cash_erosion": cash_summary,
                 })
 
             st.session_state.results = results
@@ -341,6 +351,33 @@ if st.session_state.results:
     m3.metric("Optymistyczny wynik (95%)", f"{summary['best_wealth']:,.0f} PLN".replace(",", " "),
                delta=f"{summary['best_profit']:,.0f} PLN".replace(",", " "))
 
+    st.write("")
+    st.markdown("**💸 Ryzyko inflacyjne — co by było, gdybyś tego nie zainwestował?**")
+    cash = current_result["cash_erosion"]
+    st.caption(
+        f"Realna wartość (siła nabywcza) {initial_capital:,.0f} PLN, gdyby leżało jako gotówka przez "
+        f"{current_result['horizon']} mies. zamiast być zainwestowane — na podstawie tych samych "
+        f"symulowanych ścieżek inflacji CPI, co powyższy fanchart.".replace(",", " ")
+    )
+    c1, c2, c3 = st.columns(3)
+    c1.metric(
+        "Wysoka inflacja (5%)", f"{cash['worst_real_value']:,.0f} PLN".replace(",", " "),
+        delta=f"-{cash['worst_loss']:,.0f} PLN siły nabywczej".replace(",", " "), delta_color="inverse",
+    )
+    c2.metric(
+        "Scenariusz średni", f"{cash['mean_real_value']:,.0f} PLN".replace(",", " "),
+        delta=f"-{cash['mean_loss']:,.0f} PLN siły nabywczej".replace(",", " "), delta_color="inverse",
+    )
+    c3.metric(
+        "Niska inflacja (95%)", f"{cash['best_real_value']:,.0f} PLN".replace(",", " "),
+        delta=f"-{cash['best_loss']:,.0f} PLN siły nabywczej".replace(",", " "), delta_color="inverse",
+    )
+    advantage = summary["mean_wealth"] - cash["mean_real_value"]
+    st.caption(
+        f"➡️ W scenariuszu średnim ta strategia daje o **{advantage:,.0f} PLN** więcej niż realna "
+        f"wartość tych samych pieniędzy trzymanych jako gotówka.".replace(",", " ")
+    )
+
     with st.expander("Szczegóły obligacji w tej strategii"):
         for seg in current_result["segments"]:
             b = BONDS_CONFIG[seg["name"]]
@@ -359,6 +396,7 @@ if st.session_state.results:
     comp_rows = []
     for r in results:
         s = r["stats"]["summary"]
+        cash = r["cash_erosion"]
         comp_rows.append({
             "Strategia": r["label"],
             "Ustawienia": r["settings_label"],
@@ -366,6 +404,8 @@ if st.session_state.results:
             "Pesymistyczny (PLN)": round(s["worst_wealth"], 0),
             "Średni (PLN)": round(s["mean_wealth"], 0),
             "Optymistyczny (PLN)": round(s["best_wealth"], 0),
+            "Gotówka realnie (średnio, PLN)": round(cash["mean_real_value"], 0),
+            "Przewaga nad gotówką (PLN)": round(s["mean_wealth"] - cash["mean_real_value"], 0),
         })
     st.dataframe(comp_rows, use_container_width=True, hide_index=True)
 else:
