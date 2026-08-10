@@ -111,10 +111,9 @@ def save_strategy():
     })
     st.session_state.current_build = []
 
-    # If results are already on screen, mark them stale instead of blanking
-    # them out -- the main script will notice the flag and rerun the
-    # simulation automatically before rendering, so results are never stale
-    # and the user doesn't have to remember to re-click "Oblicz".
+    # Just flag that displayed results (if any) no longer match the saved
+    # strategies. Recompute stays manual (via the button below) -- simpler
+    # and more predictable than trying to auto-trigger it.
     if st.session_state.results is not None:
         st.session_state.needs_recompute = True
 
@@ -325,13 +324,21 @@ st.divider()
 # Step 3: Run
 # ----------------------------------------------------------------------------
 saved = st.session_state.saved_strategies
-run = st.button("Oblicz i porównaj strategie", type="primary", disabled=(len(saved) == 0))
+
+if st.session_state.needs_recompute and saved:
+    st.warning(
+        "Zmieniłeś/aś listę strategii od ostatniego przeliczenia — wyniki poniżej są nieaktualne. "
+        "Kliknij przycisk, aby je odświeżyć."
+    )
+
+button_label = (
+    "Przelicz ponownie (wyniki nieaktualne)"
+    if st.session_state.needs_recompute and saved
+    else "Oblicz i porównaj strategie"
+)
+run = st.button(button_label, type="primary", disabled=(len(saved) == 0))
 
 if run and saved:
-    run_simulation(saved, initial_capital)
-elif st.session_state.needs_recompute and saved:
-    # A strategy was added or removed after results already existed once --
-    # transparently recompute so the displayed results are never stale.
     run_simulation(saved, initial_capital)
 
 st.divider()
