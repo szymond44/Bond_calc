@@ -75,11 +75,6 @@ if "results" not in st.session_state:
     st.session_state.results = None
 if "current_idx" not in st.session_state:
     st.session_state.current_idx = 0
-if "needs_recompute" not in st.session_state:
-    # True whenever saved_strategies changed (added/removed) after results
-    # were already computed once, so the simulation is transparently rerun
-    # on the next render instead of showing stale results.
-    st.session_state.needs_recompute = False
 
 
 def add_to_build(name):
@@ -111,30 +106,22 @@ def save_strategy():
     })
     st.session_state.current_build = []
 
-    # Just flag that displayed results (if any) no longer match the saved
-    # strategies. Recompute stays manual (via the button below) -- simpler
-    # and more predictable than trying to auto-trigger it.
-    if st.session_state.results is not None:
-        st.session_state.needs_recompute = True
-
 
 def delete_strategy(idx):
     st.session_state.saved_strategies.pop(idx)
     st.session_state.current_idx = 0
 
     if not st.session_state.saved_strategies:
-        # Nothing left to simulate.
         st.session_state.results = None
-        st.session_state.needs_recompute = False
-    elif st.session_state.results is not None:
-        st.session_state.needs_recompute = True
 
 
 # ----------------------------------------------------------------------------
-# Simulation runner (extracted so it can be triggered both by the button and
-# automatically after add/delete once results already exist)
+# Simulation runner
 # ----------------------------------------------------------------------------
 def run_simulation(saved, initial_capital):
+    """Runs the full Monte Carlo simulation from scratch for the current
+    saved strategies. Purely manual -- called only when the user clicks the
+    button, every time, regardless of whether anything changed."""
     with st.spinner("Kalibruję model i uruchamiam symulację Monte Carlo..."):
         try:
             matrix = load_data(["raw_nbp", "raw_cpi"], cutoff_date=CALIBRATION_CUTOFF)
@@ -190,8 +177,6 @@ def run_simulation(saved, initial_capital):
         except Exception as e:
             st.error(f"Wystąpił błąd podczas symulacji: {e}")
             st.session_state.results = None
-        finally:
-            st.session_state.needs_recompute = False
 
 
 # ----------------------------------------------------------------------------
@@ -325,18 +310,7 @@ st.divider()
 # ----------------------------------------------------------------------------
 saved = st.session_state.saved_strategies
 
-if st.session_state.needs_recompute and saved:
-    st.warning(
-        "Zmieniłeś/aś listę strategii od ostatniego przeliczenia — wyniki poniżej są nieaktualne. "
-        "Kliknij przycisk, aby je odświeżyć."
-    )
-
-button_label = (
-    "Przelicz ponownie (wyniki nieaktualne)"
-    if st.session_state.needs_recompute and saved
-    else "Oblicz i porównaj strategie"
-)
-run = st.button(button_label, type="primary", disabled=(len(saved) == 0))
+run = st.button("Przelicz ponownie", type="primary", disabled=(len(saved) == 0))
 
 if run and saved:
     run_simulation(saved, initial_capital)
