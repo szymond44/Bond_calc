@@ -117,9 +117,9 @@ def delete_strategy(idx):
 # ----------------------------------------------------------------------------
 # Header
 # ----------------------------------------------------------------------------
-st.title("💰 Symulator Strategii Obligacji Skarbowych")
+st.title("Symulator Strategii Obligacji Skarbowych")
 st.caption(
-    "Beta MVP — symulacja Monte Carlo (model Vasicka skalibrowany na danych historycznych NBP / CPI). "
+    "Beta MVP. Symulacja Monte Carlo (model Vasicka skalibrowany na danych historycznych NBP / CPI). "
     "Wyniki to projekcje, a nie gwarancja przyszłych zwrotów."
 )
 
@@ -170,11 +170,11 @@ with build_col:
                 with st.container(border=True):
                     st.markdown(f"**{name}**")
                     st.caption(INDEX_LABELS.get(bond["index_type"], bond["index_type"]))
-                    st.write(f"⏳ {horizon_txt}")
-                    st.write(f"🎁 {bonus_txt}")
-                    st.write(f"➕ Marża: {bond['margin']*100:.2f}%")
+                    st.write(f"{horizon_txt}")
+                    st.write(f"{bonus_txt}")
+                    st.write(f"Marża: {bond['margin']*100:.2f}%")
                     st.button(
-                        "➕ Dodaj do sekwencji",
+                        "Dodaj do sekwencji",
                         key=f"btn_{name}",
                         use_container_width=True,
                         on_click=add_to_build,
@@ -186,18 +186,18 @@ with build_col:
     current = st.session_state.current_build
     if current:
         total_m = strategy_total_months(current)
-        st.info(f"**Bieżąca sekwencja:** {strategy_label(current)}  \n⏳ Łącznie: {total_m} mies. (~{total_m/12:.1f} lat)")
+        st.info(f"**Bieżąca sekwencja:** {strategy_label(current)}  \nŁącznie: {total_m} mies. (~{total_m/12:.1f} lat)")
     else:
-        st.caption("Bieżąca sekwencja jest pusta — dodaj przynajmniej jedną obligację.")
+        st.caption("Bieżąca sekwencja jest pusta. Dodaj przynajmniej jedną obligację.")
 
     b1, b2, b3 = st.columns(3)
-    b1.button("↩️ Cofnij ostatnią", on_click=undo_last, use_container_width=True, disabled=not current)
-    b2.button("🗑️ Wyczyść", on_click=clear_build, use_container_width=True, disabled=not current)
+    b1.button("Cofnij ostatnią", on_click=undo_last, use_container_width=True, disabled=not current)
+    b2.button("Wyczyść", on_click=clear_build, use_container_width=True, disabled=not current)
 
     st.write("")
     st.markdown("**Ustawienia tej strategii**")
     st.caption(
-        "Te ustawienia zostaną zapisane razem z sekwencją — możesz zapisać tę samą sekwencję "
+        "Te ustawienia zostaną zapisane razem z sekwencją. Możesz zapisać tę samą sekwencję "
         "ponownie z innymi ustawieniami, aby porównać wyniki."
     )
     s1, s2 = st.columns(2)
@@ -217,7 +217,7 @@ with build_col:
         )
 
     b3.button(
-        "💾 Zapisz strategię",
+        "Zapisz strategię",
         type="primary",
         use_container_width=True,
         on_click=save_strategy,
@@ -234,9 +234,9 @@ with saved_col:
         with st.container(border=True):
             total_m = strategy_total_months(strat["bonds"])
             st.write(f"**Strategia {i + 1}:** {strategy_label(strat['bonds'])}")
-            st.caption(f"⏳ Łącznie: {total_m} mies. (~{total_m/12:.1f} lat)")
-            st.caption(f"⚙️ {strategy_settings_label(strat['reinvest'], strat['belka_tax_rate'])}")
-            st.button("✕ Usuń", key=f"del_{i}", on_click=delete_strategy, args=(i,))
+            st.caption(f"Łącznie: {total_m} mies. (~{total_m/12:.1f} lat)")
+            st.caption(f"{strategy_settings_label(strat['reinvest'], strat['belka_tax_rate'])}")
+            st.button("Usuń", key=f"del_{i}", on_click=delete_strategy, args=(i,))
 
 st.divider()
 
@@ -244,7 +244,7 @@ st.divider()
 # Step 3: Run
 # ----------------------------------------------------------------------------
 saved = st.session_state.saved_strategies
-run = st.button("📊 Oblicz i porównaj strategie", type="primary", disabled=(len(saved) == 0))
+run = st.button("Oblicz i porównaj strategie", type="primary", disabled=(len(saved) == 0))
 
 if run and saved:
     with st.spinner("Kalibruję model i uruchamiam symulację Monte Carlo..."):
@@ -333,7 +333,7 @@ if st.session_state.results:
     fig = plot_fanchart(
         current_result["stats"],
         current_result["horizon"],
-        title=f"Projekcja kapitału — {current_result['label']}",
+        title=f"Projekcja kapitału: {current_result['label']}",
         segments=current_result["segments"],
     )
     st.pyplot(fig)
@@ -352,29 +352,37 @@ if st.session_state.results:
                delta=f"{summary['best_profit']:,.0f} PLN".replace(",", " "))
 
     st.write("")
-    st.markdown("**💸 Ryzyko inflacyjne — co by było, gdybyś tego nie zainwestował?**")
+    st.markdown("**Ryzyko inflacyjne, co by było, gdybyś tego nie zainwestował?**")
     cash = current_result["cash_erosion"]
     st.caption(
         f"Realna wartość (siła nabywcza) {initial_capital:,.0f} PLN, gdyby leżało jako gotówka przez "
-        f"{current_result['horizon']} mies. zamiast być zainwestowane — na podstawie tych samych "
+        f"{current_result['horizon']} mies. zamiast być zainwestowane. Na podstawie tych samych "
         f"symulowanych ścieżek inflacji CPI, co powyższy fanchart.".replace(",", " ")
     )
+    # change = real value - initial capital: negative means cash lost purchasing
+    # power (shown red/down), positive means it gained (shown green/up) --
+    # letting Python's own sign formatting handle this avoids double-negatives
+    # like "--453" when a low-inflation scenario leaves cash ahead.
+    change_worst = cash["worst_real_value"] - initial_capital
+    change_mean = cash["mean_real_value"] - initial_capital
+    change_best = cash["best_real_value"] - initial_capital
+
     c1, c2, c3 = st.columns(3)
     c1.metric(
         "Wysoka inflacja (5%)", f"{cash['worst_real_value']:,.0f} PLN".replace(",", " "),
-        delta=f"-{cash['worst_loss']:,.0f} PLN siły nabywczej".replace(",", " "), delta_color="inverse",
+        delta=f"{change_worst:,.0f} PLN siły nabywczej".replace(",", " "),
     )
     c2.metric(
         "Scenariusz średni", f"{cash['mean_real_value']:,.0f} PLN".replace(",", " "),
-        delta=f"-{cash['mean_loss']:,.0f} PLN siły nabywczej".replace(",", " "), delta_color="inverse",
+        delta=f"{change_mean:,.0f} PLN siły nabywczej".replace(",", " "),
     )
     c3.metric(
         "Niska inflacja (95%)", f"{cash['best_real_value']:,.0f} PLN".replace(",", " "),
-        delta=f"-{cash['best_loss']:,.0f} PLN siły nabywczej".replace(",", " "), delta_color="inverse",
+        delta=f"{change_best:,.0f} PLN siły nabywczej".replace(",", " "),
     )
     advantage = summary["mean_wealth"] - cash["mean_real_value"]
     st.caption(
-        f"➡️ W scenariuszu średnim ta strategia daje o **{advantage:,.0f} PLN** więcej niż realna "
+        f"W scenariuszu średnim ta strategia daje o **{advantage:,.0f} PLN** więcej niż realna "
         f"wartość tych samych pieniędzy trzymanych jako gotówka.".replace(",", " ")
     )
 
