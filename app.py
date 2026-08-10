@@ -118,10 +118,14 @@ def delete_strategy(idx):
 # ----------------------------------------------------------------------------
 # Simulation runner
 # ----------------------------------------------------------------------------
-def run_simulation(saved, initial_capital):
+def run_simulation(saved, initial_capital, seed=42):
     """Runs the full Monte Carlo simulation from scratch for the current
-    saved strategies. Purely manual -- called only when the user clicks the
-    button, every time, regardless of whether anything changed."""
+    saved strategies. Purely manual -- called only when the user clicks a
+    button, every time, regardless of whether anything changed.
+
+    seed: passed straight to np.random.seed(). Use the default (42) for
+    reproducible results; pass None (or a random int) to get a fresh random
+    scenario each time, e.g. from the "Losuj nowy scenariusz" button."""
     with st.spinner("Kalibruję model i uruchamiam symulację Monte Carlo..."):
         try:
             matrix = load_data(["raw_nbp", "raw_cpi"], cutoff_date=CALIBRATION_CUTOFF)
@@ -129,7 +133,7 @@ def run_simulation(saved, initial_capital):
             strategy_bond_lists = [[BONDS_CONFIG[n] for n in strat["bonds"]] for strat in saved]
             horizon = max(calculate_strategy_horizon(s) for s in strategy_bond_lists)
 
-            np.random.seed(42)
+            np.random.seed(seed)
             params_list = params_calculations(matrix)
             shocks = calculate_shock(matrix, horizon, NUM_SIM)
             stacked_shocks, _ = calculate_correlations(matrix, shocks)
@@ -310,10 +314,21 @@ st.divider()
 # ----------------------------------------------------------------------------
 saved = st.session_state.saved_strategies
 
-run = st.button("Przelicz ponownie", type="primary", disabled=(len(saved) == 0))
+run_col, randomize_col = st.columns(2)
+with run_col:
+    run = st.button("Oblicz i porównaj strategie", type="primary", use_container_width=True, disabled=(len(saved) == 0))
+with randomize_col:
+    randomize = st.button("🎲 Losuj nowy scenariusz", use_container_width=True, disabled=(len(saved) == 0))
 
 if run and saved:
     run_simulation(saved, initial_capital)
+elif randomize and saved:
+    run_simulation(saved, initial_capital, seed=None)
+
+st.caption(
+    "„Oblicz i porównaj strategie” zawsze używa tego samego scenariusza (powtarzalne wyniki). "
+    "„Losuj nowy scenariusz” losuje nową, inną ścieżkę inflacji/stóp procentowych za każdym razem."
+)
 
 st.divider()
 
