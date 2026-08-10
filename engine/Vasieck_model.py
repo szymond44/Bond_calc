@@ -71,39 +71,86 @@ CPI_MIN_HALF_LIFE_YEARS = 2.0
 CPI_FLOOR_RATE = -0.016
 
 
+# def _calibrate_ou_params(col_name, series, dt, target_override=None, min_half_life_years=None, floor_rate=None):
+#     """Discretized Vasicek/OU calibration for continuously-diffusing series
+#     (e.g. inflation).
+
+#     target_override: if given, replaces the OLS-implied long-run mean `b`
+#         with this value (e.g. the official CPI target) -- see CPI_TARGET.
+#     min_half_life_years: if given, floors the mean-reversion speed `a` so it
+#         can't be slower than implied by this half-life, guarding against a
+#         fragile/understated OLS reversion estimate -- see
+#         CPI_MIN_HALF_LIFE_YEARS. `sigma` (short-term volatility) is left as
+#         the honest empirical estimate either way.
+#     floor_rate: if given, hard-clamps the simulated path at each step so it
+#         can never drop below this value -- see CPI_FLOOR_RATE. None means no
+#         floor is applied (default for non-CPI OU series).
+#     """
+#     start_value = float(series.iloc[-1])
+
+#     X = series[:-1].values
+#     Y = np.diff(series.values)
+
+#     slope, intercept, _, _, _ = linregress(X, Y)
+#     a_ols = float(-slope / dt)
+#     b_ols = float(intercept / (a_ols * dt))
+
+#     residuals = Y - (intercept + slope * X)
+#     sigma = float(np.std(residuals) / np.sqrt(dt))
+
+#     a = a_ols
+#     if min_half_life_years is not None:
+#         a_floor = math.log(2) / min_half_life_years
+#         a = max(a_ols, a_floor)
+
+#     b = b_ols if target_override is None else float(target_override)
+
+#     return {
+#         'type': 'ou',
+#         'name': col_name,
+#         'start_value': start_value,
+#         'a': a,
+#         'b': b,
+#         'sigma': sigma,
+#         'a_ols': a_ols,
+#         'b_ols': b_ols,
+#         'floor': floor_rate,
+#     }
+
+
 def _calibrate_ou_params(col_name, series, dt, target_override=None, min_half_life_years=None, floor_rate=None):
     """Discretized Vasicek/OU calibration for continuously-diffusing series
-    (e.g. inflation).
-
-    target_override: if given, replaces the OLS-implied long-run mean `b`
-        with this value (e.g. the official CPI target) -- see CPI_TARGET.
-    min_half_life_years: if given, floors the mean-reversion speed `a` so it
-        can't be slower than implied by this half-life, guarding against a
-        fragile/understated OLS reversion estimate -- see
-        CPI_MIN_HALF_LIFE_YEARS. `sigma` (short-term volatility) is left as
-        the honest empirical estimate either way.
-    floor_rate: if given, hard-clamps the simulated path at each step so it
-        can never drop below this value -- see CPI_FLOOR_RATE. None means no
-        floor is applied (default for non-CPI OU series).
-    """
+    with safeguards against OLS explosive divergence."""
     start_value = float(series.iloc[-1])
 
     X = series[:-1].values
     Y = np.diff(series.values)
 
     slope, intercept, _, _, _ = linregress(X, Y)
-    a_ols = float(-slope / dt)
-    b_ols = float(intercept / (a_ols * dt))
+    
+    # 1. Raw OLS reversion speed
+    a_raw = float(-slope / dt)
+    
+    # 2. Prevent negative/zero mean-reversion (which causes explosions).
+
+    default_min_a = math.log(2) / 10.0
+    a_floor = math.log(2) / min_half_life_years if min_half_life_years is not None else default_min_a
+    
+    a = max(a_raw, a_floor)
+
+    # If the empirical slope is positive or near zero, the intercept math divides 
+    # by near-zero, sending the long-term mean to infinity. We fall back to the 
+    # simple historical mean of the series.
+    if slope >= -1e-5:
+        b_ols = float(np.mean(X))
+    else:
+        # Safest way to compute b_ols directly from OLS slope and intercept
+        b_ols = float(intercept / -slope)
+
+    b = b_ols if target_override is None else float(target_override)
 
     residuals = Y - (intercept + slope * X)
     sigma = float(np.std(residuals) / np.sqrt(dt))
-
-    a = a_ols
-    if min_half_life_years is not None:
-        a_floor = math.log(2) / min_half_life_years
-        a = max(a_ols, a_floor)
-
-    b = b_ols if target_override is None else float(target_override)
 
     return {
         'type': 'ou',
@@ -112,11 +159,10 @@ def _calibrate_ou_params(col_name, series, dt, target_override=None, min_half_li
         'a': a,
         'b': b,
         'sigma': sigma,
-        'a_ols': a_ols,
+        'a_ols': a_raw,
         'b_ols': b_ols,
         'floor': floor_rate,
     }
-
 
 def _calibrate_jump_params(col_name, series, anchor_series, direction_bias=0.8, min_rate=0.0):
     """Empirical jump-process calibration for a discrete policy rate.
