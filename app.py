@@ -75,6 +75,11 @@ if "results" not in st.session_state:
     st.session_state.results = None
 if "current_idx" not in st.session_state:
     st.session_state.current_idx = 0
+if "needs_recompute" not in st.session_state:
+    # True whenever saved_strategies changed (added/removed) after results
+    # were already computed once, so the simulation is transparently rerun
+    # on the next render instead of showing stale results.
+    st.session_state.needs_recompute = False
 
 
 def add_to_build(name):
@@ -105,13 +110,89 @@ def save_strategy():
         "belka_tax_rate": belka_tax_rate,
     })
     st.session_state.current_build = []
-    st.session_state.results = None
+
+    # If results are already on screen, mark them stale instead of blanking
+    # them out -- the main script will notice the flag and rerun the
+    # simulation automatically before rendering, so results are never stale
+    # and the user doesn't have to remember to re-click "Oblicz".
+    if st.session_state.results is not None:
+        st.session_state.needs_recompute = True
 
 
 def delete_strategy(idx):
     st.session_state.saved_strategies.pop(idx)
-    st.session_state.results = None
     st.session_state.current_idx = 0
+
+    if not st.session_state.saved_strategies:
+        # Nothing left to simulate.
+        st.session_state.results = None
+        st.session_state.needs_recompute = False
+    elif st.session_state.results is not None:
+        st.session_state.needs_recompute = True
+
+
+# ----------------------------------------------------------------------------
+# Simulation runner (extracted so it can be triggered both by the button and
+# automatically after add/delete once results already exist)
+# ----------------------------------------------------------------------------
+def run_simulation(saved, initial_capital):
+    with st.spinner("Kalibruję model i uruchamiam symulację Monte Carlo..."):
+        try:
+            matrix = load_data(["raw_nbp", "raw_cpi"], cutoff_date=CALIBRATION_CUTOFF)
+
+            strategy_bond_lists = [[BONDS_CONFIG[n] for n in strat["bonds"]] for strat in saved]
+            horizon = max(calculate_strategy_horizon(s) for s in strategy_bond_lists)
+
+            np.random.seed(42)
+            params_list = params_calculations(matrix)
+            shocks = calculate_shock(matrix, horizon, NUM_SIM)
+            stacked_shocks, _ = calculate_correlations(matrix, shocks)
+            paths = simulate_paths(stacked_shocks, params_list, horizon, NUM_SIM)
+
+            paths_mapping = {
+                "nbp": paths[0],
+                "cpi": paths[1],
+                "fixed": paths[0],
+            }
+
+            # Real (inflation-eroded) value of the same initial_capital if it had
+            # just sat as uninvested cash, computed from the same simulated CPI
+            # paths driving the bond fanchart -- so it's a fair, apples-to-apples
+            # opportunity-cost benchmark for every strategy below.
+            cash_erosion_paths = calculate_cash_erosion_paths(paths[1], initial_capital, horizon)
+
+            results = []
+            for strat, strat_bonds in zip(saved, strategy_bond_lists):
+                global_matrix, _ = simulate_strategy(
+                    strategy=strat_bonds,
+                    initial_capital=initial_capital,
+                    paths_mapping=paths_mapping,
+                    num_sim=NUM_SIM,
+                    belka_tax_rate=strat["belka_tax_rate"],
+                    reinvest=strat["reinvest"],
+                )
+                stats = calculate_statistics(global_matrix, initial_capital)
+                strat_horizon = calculate_strategy_horizon(strat_bonds)
+                cash_summary = cash_erosion_summary_at(cash_erosion_paths, strat_horizon - 1, initial_capital)
+                results.append({
+                    "names": strat["bonds"],
+                    "label": strategy_label(strat["bonds"]),
+                    "settings_label": strategy_settings_label(strat["reinvest"], strat["belka_tax_rate"]),
+                    "reinvest": strat["reinvest"],
+                    "belka_tax_rate": strat["belka_tax_rate"],
+                    "stats": stats,
+                    "horizon": strat_horizon,
+                    "segments": strategy_segments(strat["bonds"]),
+                    "cash_erosion": cash_summary,
+                })
+
+            st.session_state.results = results
+            st.session_state.current_idx = 0
+        except Exception as e:
+            st.error(f"Wystąpił błąd podczas symulacji: {e}")
+            st.session_state.results = None
+        finally:
+            st.session_state.needs_recompute = False
 
 
 # ----------------------------------------------------------------------------
@@ -247,61 +328,11 @@ saved = st.session_state.saved_strategies
 run = st.button("Oblicz i porównaj strategie", type="primary", disabled=(len(saved) == 0))
 
 if run and saved:
-    with st.spinner("Kalibruję model i uruchamiam symulację Monte Carlo..."):
-        try:
-            matrix = load_data(["raw_nbp", "raw_cpi"], cutoff_date=CALIBRATION_CUTOFF)
-
-            strategy_bond_lists = [[BONDS_CONFIG[n] for n in strat["bonds"]] for strat in saved]
-            horizon = max(calculate_strategy_horizon(s) for s in strategy_bond_lists)
-
-            np.random.seed(42)
-            params_list = params_calculations(matrix)
-            shocks = calculate_shock(matrix, horizon, NUM_SIM)
-            stacked_shocks, _ = calculate_correlations(matrix, shocks)
-            paths = simulate_paths(stacked_shocks, params_list, horizon, NUM_SIM)
-
-            paths_mapping = {
-                "nbp": paths[0],
-                "cpi": paths[1],
-                "fixed": paths[0],
-            }
-
-            # Real (inflation-eroded) value of the same initial_capital if it had
-            # just sat as uninvested cash, computed from the same simulated CPI
-            # paths driving the bond fanchart -- so it's a fair, apples-to-apples
-            # opportunity-cost benchmark for every strategy below.
-            cash_erosion_paths = calculate_cash_erosion_paths(paths[1], initial_capital, horizon)
-
-            results = []
-            for strat, strat_bonds in zip(saved, strategy_bond_lists):
-                global_matrix, _ = simulate_strategy(
-                    strategy=strat_bonds,
-                    initial_capital=initial_capital,
-                    paths_mapping=paths_mapping,
-                    num_sim=NUM_SIM,
-                    belka_tax_rate=strat["belka_tax_rate"],
-                    reinvest=strat["reinvest"],
-                )
-                stats = calculate_statistics(global_matrix, initial_capital)
-                strat_horizon = calculate_strategy_horizon(strat_bonds)
-                cash_summary = cash_erosion_summary_at(cash_erosion_paths, strat_horizon - 1, initial_capital)
-                results.append({
-                    "names": strat["bonds"],
-                    "label": strategy_label(strat["bonds"]),
-                    "settings_label": strategy_settings_label(strat["reinvest"], strat["belka_tax_rate"]),
-                    "reinvest": strat["reinvest"],
-                    "belka_tax_rate": strat["belka_tax_rate"],
-                    "stats": stats,
-                    "horizon": strat_horizon,
-                    "segments": strategy_segments(strat["bonds"]),
-                    "cash_erosion": cash_summary,
-                })
-
-            st.session_state.results = results
-            st.session_state.current_idx = 0
-        except Exception as e:
-            st.error(f"Wystąpił błąd podczas symulacji: {e}")
-            st.session_state.results = None
+    run_simulation(saved, initial_capital)
+elif st.session_state.needs_recompute and saved:
+    # A strategy was added or removed after results already existed once --
+    # transparently recompute so the displayed results are never stale.
+    run_simulation(saved, initial_capital)
 
 st.divider()
 
