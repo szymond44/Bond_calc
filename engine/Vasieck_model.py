@@ -57,8 +57,21 @@ CPI_TARGET = 0.025
 # prior.
 CPI_MIN_HALF_LIFE_YEARS = 2.0
 
+# Hard floor on simulated CPI, grounding the downside tail in Poland's actual
+# historical deflation experience. The deepest deflation episode in the
+# available NBP data was -1.6% (Feb 2015, during the 2014-2016 deflation
+# spell) -- CPI didn't go materially lower even with a sustained
+# disinflationary shock. Without a floor, the OU diffusion has no natural
+# bound and can wander arbitrarily far into deflation in a Monte Carlo tail,
+# producing unrealistic "best case" cash-erosion scenarios. This mirrors how
+# the upside is already tightened via CPI_TARGET / CPI_MIN_HALF_LIFE_YEARS,
+# but applied as a hard clamp on the simulated path rather than a
+# reversion-speed adjustment, since there's no analogous "official target"
+# to anchor deflation reversion to the way there is for the upside.
+CPI_FLOOR_RATE = -0.016
 
-def _calibrate_ou_params(col_name, series, dt, target_override=None, min_half_life_years=None):
+
+def _calibrate_ou_params(col_name, series, dt, target_override=None, min_half_life_years=None, floor_rate=None):
     """Discretized Vasicek/OU calibration for continuously-diffusing series
     (e.g. inflation).
 
@@ -69,6 +82,9 @@ def _calibrate_ou_params(col_name, series, dt, target_override=None, min_half_li
         fragile/understated OLS reversion estimate -- see
         CPI_MIN_HALF_LIFE_YEARS. `sigma` (short-term volatility) is left as
         the honest empirical estimate either way.
+    floor_rate: if given, hard-clamps the simulated path at each step so it
+        can never drop below this value -- see CPI_FLOOR_RATE. None means no
+        floor is applied (default for non-CPI OU series).
     """
     start_value = float(series.iloc[-1])
 
@@ -98,6 +114,7 @@ def _calibrate_ou_params(col_name, series, dt, target_override=None, min_half_li
         'sigma': sigma,
         'a_ols': a_ols,
         'b_ols': b_ols,
+        'floor': floor_rate,
     }
 
 
@@ -150,17 +167,20 @@ def _calibrate_jump_params(col_name, series, anchor_series, direction_bias=0.8, 
     }
 
 
-def params_calculations(matrix, dt=1/12, cpi_target=CPI_TARGET, cpi_min_half_life_years=CPI_MIN_HALF_LIFE_YEARS):
+def params_calculations(matrix, dt=1/12, cpi_target=CPI_TARGET, cpi_min_half_life_years=CPI_MIN_HALF_LIFE_YEARS, cpi_floor_rate=CPI_FLOOR_RATE):
     """Calibrates each series in `matrix`.
 
     - Policy-rate columns (name contains 'nbp') are calibrated as an
       empirical jump process anchored to the inflation column.
     - The CPI column keeps the Vasicek/OU diffusion calibration, but its
       long-run mean is anchored to NBP's official inflation target
-      (cpi_target) rather than the fragile OLS-implied value, and its
-      reversion speed is floored using cpi_min_half_life_years. Set either
-      to None to fall back to the raw OLS estimate.
-    - Any other column keeps the plain OLS-implied OU calibration.
+      (cpi_target) rather than the fragile OLS-implied value, its
+      reversion speed is floored using cpi_min_half_life_years, and its
+      simulated path is hard-floored at cpi_floor_rate to keep the downside
+      tail within Poland's historical deflation experience. Set any of
+      these to None to fall back to the raw/uncapped behaviour.
+    - Any other column keeps the plain OLS-implied OU calibration, with no
+      floor applied.
     """
     anchor_col = None
     for col in matrix.columns:
@@ -179,6 +199,7 @@ def params_calculations(matrix, dt=1/12, cpi_target=CPI_TARGET, cpi_min_half_lif
                 col_name, series, dt,
                 target_override=cpi_target,
                 min_half_life_years=cpi_min_half_life_years,
+                floor_rate=cpi_floor_rate,
             ))
         else:
             params_list.append(_calibrate_ou_params(col_name, series, dt))
@@ -191,6 +212,10 @@ def simulate_paths(stacked_shocks, params_list, horizon, sim_number, dt=1/12):
 
     - 'ou' columns: standard discretized Vasicek step, driven by the
       (correlated) shock stream from calculate_shock/calculate_correlations.
+      If the calibration carries a 'floor' (currently only CPI), each step
+      is clamped so the simulated rate can't drop below it -- grounding the
+      downside tail in Poland's actual historical deflation range instead of
+      leaving it free to wander arbitrarily low.
     - 'jump' columns (policy rate): each month, a jump occurs with the
       calibrated historical probability; if it occurs, its magnitude is
       bootstrapped from historical step sizes and its direction is biased
@@ -225,7 +250,13 @@ def simulate_paths(stacked_shocks, params_list, horizon, sim_number, dt=1/12):
                 drift = a * (b - paths[i, :, t-1]) * dt
                 shock = sigma * np.sqrt(dt) * stacked_shocks[i, :, t]
 
-                paths[i, :, t] = paths[i, :, t-1] + drift + shock
+                new_val = paths[i, :, t-1] + drift + shock
+
+                floor = p.get('floor')
+                if floor is not None:
+                    new_val = np.maximum(new_val, floor)
+
+                paths[i, :, t] = new_val
 
             elif p['type'] == 'jump':
                 prev = paths[i, :, t-1]
