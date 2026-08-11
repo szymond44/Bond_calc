@@ -63,52 +63,20 @@ def strategy_segments(bond_names):
     return segments
 
 
-def apply_time_horizon_cutoff(global_matrix, segments, strat_horizon, cutoff_month, bonds_config):
-    """If the user's chosen time horizon (cutoff_month) is shorter than the
-    strategy's full horizon, cuts the capital matrix at cutoff_month and, if
-    that cutoff falls in the middle of a bond's term (an early redemption),
-    applies that bond's early_buyout_penalty to the capital at the cutoff.
-
-    If cutoff_month lands exactly on the boundary between two bonds, no
-    penalty is applied since that bond matured naturally at that point.
-
-    cutoff_month may be None, meaning the user left the horizon field blank;
-    in that case the strategy simply runs for its full bond sequence, same
-    as if no horizon had been requested at all.
-
-    Returns (matrix, effective_horizon, segments, penalty_info) where
-    penalty_info is None if no penalty was applied.
-    """
-    if cutoff_month is None or cutoff_month >= strat_horizon:
-        return global_matrix, strat_horizon, segments, None
-
-    cutoff_month = max(1, cutoff_month)
-    cut_matrix = global_matrix[:, :cutoff_month].copy()
-
-    penalty_bond = None
+def clip_segments_to_horizon(segments, horizon):
+    """Trims segment end months to a shortened horizon, and drops segments
+    that start beyond it, purely so the fanchart's bond-boundary labels
+    don't extend past the plotted range when a strategy was cut short."""
+    clipped = []
     for seg in segments:
-        if seg["start"] < cutoff_month < seg["end"]:
-            penalty_bond = seg["name"]
+        if seg["start"] >= horizon:
             break
-
-    penalty_info = None
-    if penalty_bond is not None:
-        penalty_rate = bonds_config[penalty_bond]["early_buyout_penalty"]
-        if penalty_rate > 0:
-            cut_matrix[:, -1] = cut_matrix[:, -1] * (1 - penalty_rate)
-            penalty_info = {"bond": penalty_bond, "rate": penalty_rate}
-
-    cut_segments = []
-    for seg in segments:
-        if seg["start"] >= cutoff_month:
-            break
-        cut_segments.append({
+        clipped.append({
             "name": seg["name"],
             "start": seg["start"],
-            "end": min(seg["end"], cutoff_month),
+            "end": min(seg["end"], horizon),
         })
-
-    return cut_matrix, cutoff_month, cut_segments, penalty_info
+    return clipped
 
 
 # ----------------------------------------------------------------------------
@@ -172,12 +140,10 @@ def run_simulation(saved, initial_capital, time_horizon_years, seed=42):
     button, every time, regardless of whether anything changed.
 
     time_horizon_years: the investment horizon the user actually wants, or
-    None if they left it blank. If a strategy's bond sequence runs longer
-    than this, its simulation is cut at that point and the
-    early_buyout_penalty of whichever bond is active at the cutoff is
-    applied to the capital, as if the investor exited early. When None, no
-    cutoff is applied and each strategy simply runs for its full bond
-    sequence, as before.
+    None if they left it blank. Passed straight through to simulate_strategy
+    as max_horizon_months, which handles cutting the strategy short and
+    applying the relevant bond's early_buyout_penalty -- this function just
+    orchestrates the run and reads the results back.
 
     seed: passed straight to np.random.seed(). Use the default (42) for
     reproducible results; pass None (or a random int) to get a fresh random
@@ -186,7 +152,10 @@ def run_simulation(saved, initial_capital, time_horizon_years, seed=42):
         try:
             matrix = load_data(["raw_nbp", "raw_cpi"], cutoff_date=CALIBRATION_CUTOFF)
 
-            strategy_bond_lists = [[BONDS_CONFIG[n] for n in strat["bonds"]] for strat in saved]
+            strategy_bond_lists = [
+                [{**BONDS_CONFIG[n], "name": n} for n in strat["bonds"]]
+                for strat in saved
+            ]
             horizon = max(calculate_strategy_horizon(s) for s in strategy_bond_lists)
 
             np.random.seed(seed)
@@ -207,24 +176,21 @@ def run_simulation(saved, initial_capital, time_horizon_years, seed=42):
             # opportunity-cost benchmark for every strategy below.
             cash_erosion_paths = calculate_cash_erosion_paths(paths[1], initial_capital, horizon)
 
-            cutoff_month = None if time_horizon_years is None else int(round(time_horizon_years * 12))
+            max_horizon_months = None if time_horizon_years is None else int(round(time_horizon_years * 12))
 
             results = []
             for strat, strat_bonds in zip(saved, strategy_bond_lists):
-                global_matrix, _ = simulate_strategy(
+                global_matrix, _, effective_horizon, penalty_info = simulate_strategy(
                     strategy=strat_bonds,
                     initial_capital=initial_capital,
                     paths_mapping=paths_mapping,
                     num_sim=NUM_SIM,
                     belka_tax_rate=strat["belka_tax_rate"],
                     reinvest=strat["reinvest"],
+                    max_horizon_months=max_horizon_months,
                 )
                 strat_horizon = calculate_strategy_horizon(strat_bonds)
-                segments = strategy_segments(strat["bonds"])
-
-                global_matrix, effective_horizon, segments, penalty_info = apply_time_horizon_cutoff(
-                    global_matrix, segments, strat_horizon, cutoff_month, BONDS_CONFIG
-                )
+                segments = clip_segments_to_horizon(strategy_segments(strat["bonds"]), effective_horizon)
 
                 stats = calculate_statistics(global_matrix, initial_capital)
                 cash_summary = cash_erosion_summary_at(cash_erosion_paths, effective_horizon - 1, initial_capital)
