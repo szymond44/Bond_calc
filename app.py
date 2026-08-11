@@ -63,6 +63,54 @@ def strategy_segments(bond_names):
     return segments
 
 
+def apply_time_horizon_cutoff(global_matrix, segments, strat_horizon, cutoff_month, bonds_config):
+    """If the user's chosen time horizon (cutoff_month) is shorter than the
+    strategy's full horizon, cuts the capital matrix at cutoff_month and, if
+    that cutoff falls in the middle of a bond's term (an early redemption),
+    applies that bond's early_buyout_penalty to the capital at the cutoff.
+
+    If cutoff_month lands exactly on the boundary between two bonds, no
+    penalty is applied since that bond matured naturally at that point.
+
+    cutoff_month may be None, meaning the user left the horizon field blank;
+    in that case the strategy simply runs for its full bond sequence, same
+    as if no horizon had been requested at all.
+
+    Returns (matrix, effective_horizon, segments, penalty_info) where
+    penalty_info is None if no penalty was applied.
+    """
+    if cutoff_month is None or cutoff_month >= strat_horizon:
+        return global_matrix, strat_horizon, segments, None
+
+    cutoff_month = max(1, cutoff_month)
+    cut_matrix = global_matrix[:, :cutoff_month].copy()
+
+    penalty_bond = None
+    for seg in segments:
+        if seg["start"] < cutoff_month < seg["end"]:
+            penalty_bond = seg["name"]
+            break
+
+    penalty_info = None
+    if penalty_bond is not None:
+        penalty_rate = bonds_config[penalty_bond]["early_buyout_penalty"]
+        if penalty_rate > 0:
+            cut_matrix[:, -1] = cut_matrix[:, -1] * (1 - penalty_rate)
+            penalty_info = {"bond": penalty_bond, "rate": penalty_rate}
+
+    cut_segments = []
+    for seg in segments:
+        if seg["start"] >= cutoff_month:
+            break
+        cut_segments.append({
+            "name": seg["name"],
+            "start": seg["start"],
+            "end": min(seg["end"], cutoff_month),
+        })
+
+    return cut_matrix, cutoff_month, cut_segments, penalty_info
+
+
 # ----------------------------------------------------------------------------
 # Session state setup
 # ----------------------------------------------------------------------------
@@ -118,10 +166,18 @@ def delete_strategy(idx):
 # ----------------------------------------------------------------------------
 # Simulation runner
 # ----------------------------------------------------------------------------
-def run_simulation(saved, initial_capital, seed=42):
+def run_simulation(saved, initial_capital, time_horizon_years, seed=42):
     """Runs the full Monte Carlo simulation from scratch for the current
     saved strategies. Purely manual -- called only when the user clicks a
     button, every time, regardless of whether anything changed.
+
+    time_horizon_years: the investment horizon the user actually wants, or
+    None if they left it blank. If a strategy's bond sequence runs longer
+    than this, its simulation is cut at that point and the
+    early_buyout_penalty of whichever bond is active at the cutoff is
+    applied to the capital, as if the investor exited early. When None, no
+    cutoff is applied and each strategy simply runs for its full bond
+    sequence, as before.
 
     seed: passed straight to np.random.seed(). Use the default (42) for
     reproducible results; pass None (or a random int) to get a fresh random
@@ -151,6 +207,8 @@ def run_simulation(saved, initial_capital, seed=42):
             # opportunity-cost benchmark for every strategy below.
             cash_erosion_paths = calculate_cash_erosion_paths(paths[1], initial_capital, horizon)
 
+            cutoff_month = None if time_horizon_years is None else int(round(time_horizon_years * 12))
+
             results = []
             for strat, strat_bonds in zip(saved, strategy_bond_lists):
                 global_matrix, _ = simulate_strategy(
@@ -161,9 +219,15 @@ def run_simulation(saved, initial_capital, seed=42):
                     belka_tax_rate=strat["belka_tax_rate"],
                     reinvest=strat["reinvest"],
                 )
-                stats = calculate_statistics(global_matrix, initial_capital)
                 strat_horizon = calculate_strategy_horizon(strat_bonds)
-                cash_summary = cash_erosion_summary_at(cash_erosion_paths, strat_horizon - 1, initial_capital)
+                segments = strategy_segments(strat["bonds"])
+
+                global_matrix, effective_horizon, segments, penalty_info = apply_time_horizon_cutoff(
+                    global_matrix, segments, strat_horizon, cutoff_month, BONDS_CONFIG
+                )
+
+                stats = calculate_statistics(global_matrix, initial_capital)
+                cash_summary = cash_erosion_summary_at(cash_erosion_paths, effective_horizon - 1, initial_capital)
                 results.append({
                     "names": strat["bonds"],
                     "label": strategy_label(strat["bonds"]),
@@ -171,9 +235,11 @@ def run_simulation(saved, initial_capital, seed=42):
                     "reinvest": strat["reinvest"],
                     "belka_tax_rate": strat["belka_tax_rate"],
                     "stats": stats,
-                    "horizon": strat_horizon,
-                    "segments": strategy_segments(strat["bonds"]),
+                    "horizon": effective_horizon,
+                    "full_horizon": strat_horizon,
+                    "segments": segments,
                     "cash_erosion": cash_summary,
+                    "penalty_info": penalty_info,
                 })
 
             st.session_state.results = results
@@ -198,11 +264,11 @@ st.markdown(
 st.divider()
 
 # ----------------------------------------------------------------------------
-# Step 1: Capital
+# Step 1: Capital and time horizon
 # ----------------------------------------------------------------------------
-st.markdown("<h3 style='text-align:center;'>1. Kwota inwestycji</h3>", unsafe_allow_html=True)
-cap_left, cap_mid, cap_right = st.columns([2, 1, 2])
-with cap_mid:
+st.markdown("<h3 style='text-align:center;'>1. Kwota inwestycji i horyzont</h3>", unsafe_allow_html=True)
+cap_left, cap_mid1, cap_mid2, cap_right = st.columns([2, 1, 1, 2])
+with cap_mid1:
     initial_capital = st.number_input(
         "Ile chcesz zainwestować (PLN)?",
         min_value=100.0,
@@ -210,6 +276,19 @@ with cap_mid:
         value=10000.0,
         step=500.0,
     )
+with cap_mid2:
+    time_horizon_years = st.number_input(
+        "Horyzont inwestycji (lata)",
+        min_value=1,
+        max_value=30,
+        value=None,
+        step=1,
+        placeholder="Pełny okres obligacji",
+        help="Jeśli wybrana obligacja lub sekwencja obligacji jest dłuższa niż ten horyzont, "
+             "symulacja zostanie przycięta na tym horyzoncie i naliczona zostanie kara za "
+             "wcześniejszy wykup obligacji, w której akurat trwałaby inwestycja.",
+    )
+    st.caption("Pole opcjonalne. Jeśli je zostawisz puste, symulacja użyje pełnego okresu wybranej sekwencji obligacji.")
 
 st.divider()
 
@@ -328,9 +407,9 @@ with randomize_col:
     randomize = st.button("Losuj nowy scenariusz", use_container_width=True, disabled=(len(saved) == 0))
 
 if run and saved:
-    run_simulation(saved, initial_capital)
+    run_simulation(saved, initial_capital, time_horizon_years)
 elif randomize and saved:
-    run_simulation(saved, initial_capital, seed=None)
+    run_simulation(saved, initial_capital, time_horizon_years, seed=None)
 
 st.markdown(
     "<p style='text-align:center;color:gray;'>"
@@ -380,6 +459,22 @@ if st.session_state.results:
     st.caption(f"Kolejność w strategii: {seq_txt}")
     st.caption(f"Ustawienia: {current_result['settings_label']}.")
     st.caption("Przerywane pionowe linie oznaczają moment, w którym kończy się jedna obligacja, a zaczyna kolejna w sekwencji.")
+
+    if current_result["penalty_info"] is not None:
+        pi = current_result["penalty_info"]
+        st.warning(
+            f"Wybrany horyzont inwestycji ({time_horizon_years} lat) jest krótszy niż pełna sekwencja "
+            f"obligacji ({current_result['full_horizon']} mies.). Symulacja została przycięta na "
+            f"{current_result['horizon']} mies., co oznacza wcześniejszy wykup obligacji {pi['bond']}. "
+            f"Naliczono karę za wcześniejszy wykup w wysokości {pi['rate']*100:.2f}%."
+        )
+    elif current_result["horizon"] < current_result["full_horizon"]:
+        st.info(
+            f"Wybrany horyzont inwestycji ({time_horizon_years} lat) jest krótszy niż pełna sekwencja "
+            f"obligacji ({current_result['full_horizon']} mies.). Symulacja została przycięta na "
+            f"{current_result['horizon']} mies., dokładnie na końcu obligacji, więc kara za wcześniejszy "
+            f"wykup nie została naliczona."
+        )
 
     summary = current_result["stats"]["summary"]
     m1, m2, m3 = st.columns(3)
