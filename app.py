@@ -186,10 +186,13 @@ def run_simulation(saved, initial_capital, seed=42):
 # ----------------------------------------------------------------------------
 # Header
 # ----------------------------------------------------------------------------
-st.title("Symulator Strategii Obligacji Skarbowych")
-st.caption(
-    "Beta MVP. Symulacja Monte Carlo (model Vasicka skalibrowany na danych historycznych NBP / CPI). "
-    "Wyniki to projekcje, a nie gwarancja przyszłych zwrotów."
+st.markdown(
+    "<h1 style='text-align:center;'>Symulator Strategii Obligacji Skarbowych</h1>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    "<p style='text-align:center;color:gray;'>Wyniki to projekcja i nie gwarantują przyszłych zysków.</p>",
+    unsafe_allow_html=True,
 )
 
 st.divider()
@@ -197,14 +200,16 @@ st.divider()
 # ----------------------------------------------------------------------------
 # Step 1: Capital
 # ----------------------------------------------------------------------------
-st.subheader("1. Kwota inwestycji")
-initial_capital = st.number_input(
-    "Ile chcesz zainwestować (PLN)?",
-    min_value=100.0,
-    max_value=10_000_000.0,
-    value=10000.0,
-    step=500.0,
-)
+st.markdown("<h3 style='text-align:center;'>1. Kwota inwestycji</h3>", unsafe_allow_html=True)
+cap_left, cap_mid, cap_right = st.columns([2, 1, 2])
+with cap_mid:
+    initial_capital = st.number_input(
+        "Ile chcesz zainwestować (PLN)?",
+        min_value=100.0,
+        max_value=10_000_000.0,
+        value=10000.0,
+        step=500.0,
+    )
 
 st.divider()
 
@@ -259,9 +264,11 @@ with build_col:
     else:
         st.caption("Bieżąca sekwencja jest pusta. Dodaj przynajmniej jedną obligację.")
 
-    b1, b2, b3 = st.columns(3)
-    b1.button("Cofnij ostatnią", on_click=undo_last, use_container_width=True, disabled=not current)
-    b2.button("Wyczyść", on_click=clear_build, use_container_width=True, disabled=not current)
+    b_left, b_mid, b_right = st.columns([1, 4, 1])
+    with b_mid:
+        b1, b2, b3 = st.columns(3)
+        b1.button("Cofnij ostatnią", on_click=undo_last, use_container_width=True, disabled=not current)
+        b2.button("Wyczyść", on_click=clear_build, use_container_width=True, disabled=not current)
 
     st.write("")
     st.markdown("**Ustawienia tej strategii**")
@@ -318,16 +325,21 @@ run_col, randomize_col = st.columns(2)
 with run_col:
     run = st.button("Oblicz i porównaj strategie", type="primary", use_container_width=True, disabled=(len(saved) == 0))
 with randomize_col:
-    randomize = st.button("🎲 Losuj nowy scenariusz", use_container_width=True, disabled=(len(saved) == 0))
+    randomize = st.button("Losuj nowy scenariusz", use_container_width=True, disabled=(len(saved) == 0))
 
 if run and saved:
     run_simulation(saved, initial_capital)
 elif randomize and saved:
     run_simulation(saved, initial_capital, seed=None)
 
-st.caption(
-    "„Oblicz i porównaj strategie” zawsze używa tego samego scenariusza (powtarzalne wyniki). "
-    "„Losuj nowy scenariusz” losuje nową, inną ścieżkę inflacji/stóp procentowych za każdym razem."
+st.markdown(
+    "<p style='text-align:center;color:gray;'>"
+    "„Oblicz i porównaj strategie” pokazuje wynik dla jednego, ustalonego scenariusza, więc możesz "
+    "spokojnie porównywać różne strategie na tych samych warunkach. „Losuj nowy scenariusz” losuje "
+    "inny, równie prawdopodobny przebieg przyszłości (inną inflację i stopy procentowe), żebyś zobaczył/a, "
+    "jak bardzo wyniki mogą się różnić."
+    "</p>",
+    unsafe_allow_html=True,
 )
 
 st.divider()
@@ -444,4 +456,8 @@ if st.session_state.results:
         })
     st.dataframe(comp_rows, use_container_width=True, hide_index=True)
 else:
-    st.caption("Zbuduj i zapisz strategie, a następnie kliknij „Oblicz i porównaj strategie”, aby zobaczyć wyniki.")
+    st.markdown(
+        "<p style='text-align:center;color:gray;'>Zbuduj i zapisz strategie, a następnie kliknij "
+        "„Oblicz i porównaj strategie”, aby zobaczyć wyniki.</p>",
+        unsafe_allow_html=True,
+    )
