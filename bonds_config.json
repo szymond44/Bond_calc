@@ -82,7 +82,7 @@
     "bonus_rate": 0.056,
     "margin": 0.025,
     "index_type": "cpi",
-    "early_buyout_penalty": 0.02,
+    "early_buyout_penalty": 0.03,
     "timeframe_months": 144,
     "capitalisation_period": 12,
     "does_capitalise": true
