@@ -154,11 +154,15 @@ def run_simulation(saved, initial_capital, dca_amount, dca_duration_months, time
             strategy_bond_lists = [copy.deepcopy(strat["bonds"]) for strat in saved]
             horizon = max(calculate_strategy_horizon(s) for s in strategy_bond_lists)
 
+            max_bond_length = max(b["timeframe_months"] for s in strategy_bond_lists for b in s)
+            
+            macro_horizon = horizon + max_bond_length
+
             np.random.seed(seed)
             params_list = params_calculations(matrix)
-            shocks = calculate_shock(matrix, horizon, NUM_SIM)
+            shocks = calculate_shock(matrix, macro_horizon, NUM_SIM)
             stacked_shocks, _ = calculate_correlations(matrix, shocks)
-            paths = simulate_paths(stacked_shocks, params_list, horizon, NUM_SIM)
+            paths = simulate_paths(stacked_shocks, params_list, macro_horizon, NUM_SIM)
 
             paths_mapping = {
                 "nbp": paths[0],
