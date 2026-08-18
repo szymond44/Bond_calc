@@ -468,23 +468,18 @@ if st.session_state.results:
         st.pyplot(fig2)
         st.caption("Wykres przedstawia poszczególne wpłaty z DCA jako warstwy nakładające się na siebie. Suma wszystkich warstw daje środkową linię oczekiwaną z wykresu głównego.")
 
+    max_full_horizon_months = max(r["full_horizon"] for r in results)
+    max_full_horizon_years = max_full_horizon_months / 12
+    strat_full_horizon_years = current_result["full_horizon"] / 12
+
     if current_result["penalty_info"] is not None:
-        pi = current_result["penalty_info"]
-        h_text = f"{time_horizon_years} lat" if time_horizon_years is not None else "domyślny"
-        st.warning(
-            f"Wybrany horyzont inwestycji ({h_text}) jest krótszy niż pełna sekwencja "
-            f"obligacji ({current_result['full_horizon']} mies.). Symulacja została przycięta na "
-            f"{current_result['horizon']} mies., co oznacza wcześniejszy wykup obligacji {pi['bond']}. "
-            f"Naliczono karę za wcześniejszy wykup w wysokości {pi['rate']*100:.2f}%."
-        )
-    elif current_result["horizon"] < current_result["full_horizon"]:
-        h_text = f"{time_horizon_years} lat" if time_horizon_years is not None else "domyślny"
-        st.info(
-            f"Wybrany horyzont inwestycji ({h_text}) jest krótszy niż pełna sekwencja "
-            f"obligacji ({current_result['full_horizon']} mies.). Symulacja została przycięta na "
-            f"{current_result['horizon']} mies., dokładnie na końcu obligacji, więc kara za wcześniejszy "
-            f"wykup nie została naliczona."
-        )
+        if current_result["full_horizon"] < max_full_horizon_months:
+            pi = current_result["penalty_info"]
+            st.warning(
+                f"Horyzont strategii ({strat_full_horizon_years:g} lat) jest krótszy niż najdłuższy horyzont z "
+                f"porównywanych strategii ({max_full_horizon_years:g} lat), co oznacza wcześniejszy wykup obligacji "
+                f"{pi['bond']}. Naliczono karę za wcześniejszy wykup w wysokości {pi['rate']*100:.2f}%."
+            )
 
     summary = current_result["stats"]["summary"]
     m1, m2, m3 = st.columns(3)
