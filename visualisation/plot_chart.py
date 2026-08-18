@@ -69,7 +69,7 @@ def plot_cohorts(cohort_means, time_horizon, title=None):
     if not cohort_means:
         return fig
         
-    cmap = cm.get_cmap('viridis')
+    cmap = plt.get_cmap('viridis')
     colors = [cmap(i / max(1, len(cohort_means) - 1)) for i in range(len(cohort_means))]
     
     ax.stackplot(months, *cohort_means, colors=colors, alpha=0.85)
