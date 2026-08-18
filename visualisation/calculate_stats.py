@@ -1,6 +1,6 @@
 import numpy as np
 
-def calculate_statistics(global_matrix, initial_capital, tolerance_percent=5):
+def calculate_statistics(global_matrix, total_invested, tolerance_percent=5):
 
     mean_path = np.mean(global_matrix, axis=0)
     worst_path = np.percentile(global_matrix, tolerance_percent, axis=0)
@@ -12,9 +12,9 @@ def calculate_statistics(global_matrix, initial_capital, tolerance_percent=5):
     worst_final_wealth = np.percentile(final_values, tolerance_percent)
     best_final_wealth = np.percentile(final_values, 100 - tolerance_percent)
 
-    mean_profit = mean_final_wealth - initial_capital
-    worst_profit = worst_final_wealth - initial_capital
-    best_profit = best_final_wealth - initial_capital
+    mean_profit = mean_final_wealth - total_invested
+    worst_profit = worst_final_wealth - total_invested
+    best_profit = best_final_wealth - total_invested
 
     return {
         "paths": {

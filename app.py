@@ -1,3 +1,4 @@
+import copy
 import json
 import numpy as np
 import streamlit as st
@@ -38,8 +39,8 @@ def bond_summary_line(bond):
     return years, horizon_txt, bonus_txt
 
 
-def strategy_label(bond_names):
-    return " → ".join(bond_names)
+def strategy_label(bonds):
+    return " → ".join(b["name"] for b in bonds)
 
 
 def strategy_settings_label(reinvest, belka_tax_rate):
@@ -48,25 +49,21 @@ def strategy_settings_label(reinvest, belka_tax_rate):
     return f"{tax_txt}, {reinvest_txt}"
 
 
-def strategy_total_months(bond_names):
-    return calculate_strategy_horizon([BONDS_CONFIG[n] for n in bond_names])
+def strategy_total_months(bonds):
+    return calculate_strategy_horizon(bonds)
 
 
-def strategy_segments(bond_names):
-    """Cumulative month ranges for each bond in the sequence, for chart annotation."""
+def strategy_segments(bonds):
     segments = []
     cursor = 0
-    for name in bond_names:
-        months = BONDS_CONFIG[name]["timeframe_months"]
-        segments.append({"name": name, "start": cursor, "end": cursor + months})
+    for bond in bonds:
+        months = bond["timeframe_months"]
+        segments.append({"name": bond["name"], "start": cursor, "end": cursor + months})
         cursor += months
     return segments
 
 
 def clip_segments_to_horizon(segments, horizon):
-    """Trims segment end months to a shortened horizon, and drops segments
-    that start beyond it, purely so the fanchart's bond-boundary labels
-    don't extend past the plotted range when a strategy was cut short."""
     clipped = []
     for seg in segments:
         if seg["start"] >= horizon:
@@ -79,13 +76,9 @@ def clip_segments_to_horizon(segments, horizon):
     return clipped
 
 
-# ----------------------------------------------------------------------------
-# Session state setup
-# ----------------------------------------------------------------------------
 if "current_build" not in st.session_state:
-    st.session_state.current_build = []          # bonds being added to the strategy in progress
+    st.session_state.current_build = []
 if "saved_strategies" not in st.session_state:
-    # list of dicts: {"bonds": [names...], "reinvest": bool, "belka_tax_rate": float}
     st.session_state.saved_strategies = []
 if "results" not in st.session_state:
     st.session_state.results = None
@@ -94,7 +87,23 @@ if "current_idx" not in st.session_state:
 
 
 def add_to_build(name):
-    st.session_state.current_build.append(name)
+    bond = copy.deepcopy(BONDS_CONFIG[name])
+    bond["name"] = name
+    
+    margin_key = f"{name}_margin"
+    if margin_key in st.session_state:
+        bond["margin"] = st.session_state[margin_key] / 100.0
+        
+    penalty_key = f"{name}_penalty"
+    if penalty_key in st.session_state:
+        bond["early_buyout_penalty"] = st.session_state[penalty_key] / 100.0
+        
+    if bond["is_bonus"]:
+        bonus_key = f"{name}_bonus_rate"
+        if bonus_key in st.session_state:
+            bond["bonus_rate"] = st.session_state[bonus_key] / 100.0
+            
+    st.session_state.current_build.append(bond)
 
 
 def undo_last():
@@ -116,7 +125,7 @@ def save_strategy():
     belka_tax_rate = 0.19 if st.session_state.get("build_tax_choice", "19% (standardowa)").startswith("19") else 0.0
 
     st.session_state.saved_strategies.append({
-        "bonds": list(st.session_state.current_build),
+        "bonds": copy.deepcopy(st.session_state.current_build),
         "reinvest": reinvest,
         "belka_tax_rate": belka_tax_rate,
     })
@@ -131,31 +140,18 @@ def delete_strategy(idx):
         st.session_state.results = None
 
 
-# ----------------------------------------------------------------------------
-# Simulation runner
-# ----------------------------------------------------------------------------
-def run_simulation(saved, initial_capital, time_horizon_years, seed=42):
-    """Runs the full Monte Carlo simulation from scratch for the current
-    saved strategies. Purely manual -- called only when the user clicks a
-    button, every time, regardless of whether anything changed.
+def reset_bond_settings():
+    for key in list(st.session_state.keys()):
+        if key.endswith("_margin") or key.endswith("_penalty") or key.endswith("_bonus_rate"):
+            del st.session_state[key]
 
-    time_horizon_years: the investment horizon the user actually wants, or
-    None if they left it blank. Passed straight through to simulate_strategy
-    as max_horizon_months, which handles cutting the strategy short and
-    applying the relevant bond's early_buyout_penalty -- this function just
-    orchestrates the run and reads the results back.
 
-    seed: passed straight to np.random.seed(). Use the default (42) for
-    reproducible results; pass None (or a random int) to get a fresh random
-    scenario each time, e.g. from the "Losuj nowy scenariusz" button."""
+def run_simulation(saved, initial_capital, dca_amount, dca_duration_months, time_horizon_years, seed=42):
     with st.spinner("Kalibruję model i uruchamiam symulację Monte Carlo..."):
         try:
             matrix = load_data(["raw_nbp", "raw_cpi"], cutoff_date=CALIBRATION_CUTOFF)
 
-            strategy_bond_lists = [
-                [{**BONDS_CONFIG[n], "name": n} for n in strat["bonds"]]
-                for strat in saved
-            ]
+            strategy_bond_lists = [copy.deepcopy(strat["bonds"]) for strat in saved]
             horizon = max(calculate_strategy_horizon(s) for s in strategy_bond_lists)
 
             np.random.seed(seed)
@@ -170,17 +166,11 @@ def run_simulation(saved, initial_capital, time_horizon_years, seed=42):
                 "fixed": paths[0],
             }
 
-            # Real (inflation-eroded) value of the same initial_capital if it had
-            # just sat as uninvested cash, computed from the same simulated CPI
-            # paths driving the bond fanchart -- so it's a fair, apples-to-apples
-            # opportunity-cost benchmark for every strategy below.
-            cash_erosion_paths = calculate_cash_erosion_paths(paths[1], initial_capital, horizon)
-
             max_horizon_months = None if time_horizon_years is None else int(round(time_horizon_years * 12))
 
             results = []
             for strat, strat_bonds in zip(saved, strategy_bond_lists):
-                global_matrix, _, effective_horizon, penalty_info = simulate_strategy(
+                global_matrix, strat_total_invested, effective_horizon, penalty_info = simulate_strategy(
                     strategy=strat_bonds,
                     initial_capital=initial_capital,
                     paths_mapping=paths_mapping,
@@ -188,14 +178,20 @@ def run_simulation(saved, initial_capital, time_horizon_years, seed=42):
                     belka_tax_rate=strat["belka_tax_rate"],
                     reinvest=strat["reinvest"],
                     max_horizon_months=max_horizon_months,
+                    dca_amount=dca_amount,
+                    dca_duration_months=dca_duration_months,
                 )
+                
+                cash_erosion_paths = calculate_cash_erosion_paths(paths[1], strat_total_invested, horizon)
+                
                 strat_horizon = calculate_strategy_horizon(strat_bonds)
                 segments = clip_segments_to_horizon(strategy_segments(strat["bonds"]), effective_horizon)
 
-                stats = calculate_statistics(global_matrix, initial_capital)
-                cash_summary = cash_erosion_summary_at(cash_erosion_paths, effective_horizon - 1, initial_capital)
+                stats = calculate_statistics(global_matrix, strat_total_invested)
+                cash_summary = cash_erosion_summary_at(cash_erosion_paths, effective_horizon - 1, strat_total_invested)
+                
                 results.append({
-                    "names": strat["bonds"],
+                    "bonds": strat["bonds"],
                     "label": strategy_label(strat["bonds"]),
                     "settings_label": strategy_settings_label(strat["reinvest"], strat["belka_tax_rate"]),
                     "reinvest": strat["reinvest"],
@@ -206,6 +202,7 @@ def run_simulation(saved, initial_capital, time_horizon_years, seed=42):
                     "segments": segments,
                     "cash_erosion": cash_summary,
                     "penalty_info": penalty_info,
+                    "total_invested": strat_total_invested,
                 })
 
             st.session_state.results = results
@@ -215,9 +212,6 @@ def run_simulation(saved, initial_capital, time_horizon_years, seed=42):
             st.session_state.results = None
 
 
-# ----------------------------------------------------------------------------
-# Header
-# ----------------------------------------------------------------------------
 st.markdown(
     "<h1 style='text-align:center;'>Symulator Strategii Obligacji Skarbowych</h1>",
     unsafe_allow_html=True,
@@ -229,20 +223,33 @@ st.markdown(
 
 st.divider()
 
-# ----------------------------------------------------------------------------
-# Step 1: Capital and time horizon
-# ----------------------------------------------------------------------------
 st.markdown("<h3 style='text-align:center;'>1. Kwota inwestycji i horyzont</h3>", unsafe_allow_html=True)
-cap_left, cap_mid1, cap_mid2, cap_right = st.columns([2, 1, 1, 2])
-with cap_mid1:
+cap_c1, cap_c2, cap_c3, cap_c4 = st.columns(4)
+with cap_c1:
     initial_capital = st.number_input(
-        "Ile chcesz zainwestować (PLN)?",
-        min_value=100.0,
+        "Kwota startowa (PLN)",
+        min_value=0.0,
         max_value=10_000_000.0,
         value=10000.0,
         step=500.0,
     )
-with cap_mid2:
+with cap_c2:
+    dca_amount = st.number_input(
+        "Miesięczna dopłata (PLN)",
+        min_value=0.0,
+        max_value=1_000_000.0,
+        value=0.0,
+        step=100.0,
+    )
+with cap_c3:
+    dca_duration = st.number_input(
+        "Czas dopłat (miesiące)",
+        min_value=0,
+        max_value=360,
+        value=0,
+        step=12,
+    )
+with cap_c4:
     time_horizon_years = st.number_input(
         "Horyzont inwestycji (lata)",
         min_value=1,
@@ -254,13 +261,9 @@ with cap_mid2:
              "symulacja zostanie przycięta na tym horyzoncie i naliczona zostanie kara za "
              "wcześniejszy wykup obligacji, w której akurat trwałaby inwestycja.",
     )
-    st.caption("Pole opcjonalne. Jeśli je zostawisz puste, symulacja użyje pełnego okresu wybranej sekwencji obligacji.")
 
 st.divider()
 
-# ----------------------------------------------------------------------------
-# Step 2: Build strategies (sequences of bonds + their own tax/reinvest settings)
-# ----------------------------------------------------------------------------
 st.subheader(f"2. Zbuduj strategie do porównania (maks. {MAX_STRATEGIES})")
 st.caption(
     "Strategia to sekwencja obligacji ułożonych jedna po drugiej (np. 3M + 1Y + 12Y), "
@@ -283,15 +286,34 @@ with build_col:
         cols = st.columns(len(row))
         for col, name in zip(cols, row):
             bond = BONDS_CONFIG[name]
-            years, horizon_txt, bonus_txt = bond_summary_line(bond)
+            
+            display_bond = copy.deepcopy(bond)
+            if f"{name}_margin" in st.session_state:
+                display_bond["margin"] = st.session_state[f"{name}_margin"] / 100.0
+            if f"{name}_penalty" in st.session_state:
+                display_bond["early_buyout_penalty"] = st.session_state[f"{name}_penalty"] / 100.0
+            if bond["is_bonus"] and f"{name}_bonus_rate" in st.session_state:
+                display_bond["bonus_rate"] = st.session_state[f"{name}_bonus_rate"] / 100.0
+
+            years, horizon_txt, bonus_txt = bond_summary_line(display_bond)
 
             with col:
                 with st.container(border=True):
-                    st.markdown(f"**{name}**")
-                    st.caption(INDEX_LABELS.get(bond["index_type"], bond["index_type"]))
+                    head_col1, head_col2 = st.columns([3, 1])
+                    with head_col1:
+                        st.markdown(f"**{name}**")
+                    with head_col2:
+                        with st.popover("⚙️"):
+                            st.markdown("**Własne warunki**")
+                            st.number_input("Marża (%)", value=bond["margin"]*100, step=0.1, key=f"{name}_margin")
+                            st.number_input("Kara za wcześniejszy wykup (%)", value=bond["early_buyout_penalty"]*100, step=0.1, key=f"{name}_penalty")
+                            if bond["is_bonus"]:
+                                st.number_input("Bonus w 1. okresie (%)", value=bond["bonus_rate"]*100, step=0.1, key=f"{name}_bonus_rate")
+
+                    st.caption(INDEX_LABELS.get(display_bond["index_type"], display_bond["index_type"]))
                     st.write(f"{horizon_txt}")
                     st.write(f"{bonus_txt}")
-                    st.write(f"Marża: {bond['margin']*100:.2f}%")
+                    st.write(f"Marża: {display_bond['margin']*100:.2f}%")
                     st.button(
                         "Dodaj do sekwencji",
                         key=f"btn_{name}",
@@ -300,6 +322,8 @@ with build_col:
                         args=(name,),
                         disabled=build_disabled,
                     )
+
+    st.button("Zresetuj własne warunki obligacji", on_click=reset_bond_settings)
 
     st.write("")
     current = st.session_state.current_build
@@ -356,14 +380,19 @@ with saved_col:
             total_m = strategy_total_months(strat["bonds"])
             st.write(f"**Strategia {i + 1}:** {strategy_label(strat['bonds'])}")
             st.caption(f"Łącznie: {total_m} mies. (~{total_m/12:.1f} lat)")
+            
+            custom_notes = []
+            for b in strat["bonds"]:
+                if b["margin"] != BONDS_CONFIG[b["name"]]["margin"]:
+                    custom_notes.append(f"{b['name']} (marża {b['margin']*100:.2f}%)")
+            if custom_notes:
+                st.caption(f"Własne parametry: {', '.join(custom_notes)}")
+                
             st.caption(f"{strategy_settings_label(strat['reinvest'], strat['belka_tax_rate'])}")
             st.button("Usuń", key=f"del_{i}", on_click=delete_strategy, args=(i,))
 
 st.divider()
 
-# ----------------------------------------------------------------------------
-# Step 3: Run
-# ----------------------------------------------------------------------------
 saved = st.session_state.saved_strategies
 
 run_col, randomize_col = st.columns(2)
@@ -373,9 +402,9 @@ with randomize_col:
     randomize = st.button("Losuj nowy scenariusz", use_container_width=True, disabled=(len(saved) == 0))
 
 if run and saved:
-    run_simulation(saved, initial_capital, time_horizon_years)
+    run_simulation(saved, initial_capital, dca_amount, dca_duration, time_horizon_years)
 elif randomize and saved:
-    run_simulation(saved, initial_capital, time_horizon_years, seed=None)
+    run_simulation(saved, initial_capital, dca_amount, dca_duration, time_horizon_years, seed=None)
 
 st.markdown(
     "<p style='text-align:center;color:gray;'>"
@@ -389,9 +418,6 @@ st.markdown(
 
 st.divider()
 
-# ----------------------------------------------------------------------------
-# Step 4: Results carousel
-# ----------------------------------------------------------------------------
 if st.session_state.results:
     results = st.session_state.results
     n = len(results)
@@ -455,17 +481,13 @@ if st.session_state.results:
     st.markdown("**Ryzyko inflacyjne, co by było, gdybyś tego nie zainwestował?**")
     cash = current_result["cash_erosion"]
     st.caption(
-        f"Realna wartość (siła nabywcza) {initial_capital:,.0f} PLN, gdyby leżało jako gotówka przez "
-        f"{current_result['horizon']} mies. zamiast być zainwestowane. Na podstawie tych samych "
-        f"symulowanych ścieżek inflacji CPI, co powyższy fanchart.".replace(",", " ")
+        f"Realna wartość (siła nabywcza) sumy {current_result['total_invested']:,.0f} PLN wpłaconego kapitału, "
+        f"gdyby leżał jako gotówka przez {current_result['horizon']} mies. (uproszczony rzut na start symulacji). "
+        f"Na podstawie tych samych symulowanych ścieżek inflacji CPI, co powyższy fanchart.".replace(",", " ")
     )
-    # change = real value - initial capital: negative means cash lost purchasing
-    # power (shown red/down), positive means it gained (shown green/up) --
-    # letting Python's own sign formatting handle this avoids double-negatives
-    # like "--453" when a low-inflation scenario leaves cash ahead.
-    change_worst = cash["worst_real_value"] - initial_capital
-    change_mean = cash["mean_real_value"] - initial_capital
-    change_best = cash["best_real_value"] - initial_capital
+    change_worst = cash["worst_real_value"] - current_result["total_invested"]
+    change_mean = cash["mean_real_value"] - current_result["total_invested"]
+    change_best = cash["best_real_value"] - current_result["total_invested"]
 
     c1, c2, c3 = st.columns(3)
     c1.metric(
@@ -487,10 +509,10 @@ if st.session_state.results:
     )
 
     with st.expander("Szczegóły obligacji w tej strategii"):
-        for seg in current_result["segments"]:
-            b = BONDS_CONFIG[seg["name"]]
+        for i, b in enumerate(current_result["bonds"]):
+            seg = current_result["segments"][i]
             years, horizon_txt, bonus_txt = bond_summary_line(b)
-            st.markdown(f"**{seg['name']}** (miesiące {seg['start']}–{seg['end']})")
+            st.markdown(f"**{b['name']}** (miesiące {seg['start']}–{seg['end']})")
             st.write(f"- Typ oprocentowania: {INDEX_LABELS.get(b['index_type'], b['index_type'])}")
             st.write(f"- Okres: {horizon_txt}")
             st.write(f"- Bonus na start: {bonus_txt}")
@@ -509,6 +531,7 @@ if st.session_state.results:
             "Strategia": r["label"],
             "Ustawienia": r["settings_label"],
             "Okres (mies.)": r["horizon"],
+            "Wpłacono (PLN)": round(r["total_invested"], 0),
             "Pesymistyczny (PLN)": round(s["worst_wealth"], 0),
             "Średni (PLN)": round(s["mean_wealth"], 0),
             "Optymistyczny (PLN)": round(s["best_wealth"], 0),
