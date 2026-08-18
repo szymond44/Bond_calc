@@ -244,10 +244,11 @@ with cap_c2:
 with cap_c3:
     dca_duration = st.number_input(
         "Czas dopłat (miesiące)",
-        min_value=0,
+        min_value=1,
         max_value=360,
-        value=0,
+        value=None,
         step=12,
+        placeholder="Do końca strategii",
     )
 with cap_c4:
     time_horizon_years = st.number_input(

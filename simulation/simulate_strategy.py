@@ -4,9 +4,13 @@ from simulation.capital_calculator import capital_calculator
 from engine.strategy_horizon import calculate_strategy_horizon
 from simulation.get_bond_rates import get_bond_rates
 
-def simulate_strategy(strategy, initial_capital, paths_mapping, num_sim, belka_tax_rate=0.19, reinvest=True, max_horizon_months=None, dca_amount=0.0, dca_duration_months=0):
+
+def simulate_strategy(strategy, initial_capital, paths_mapping, num_sim, belka_tax_rate=0.19, reinvest=True, max_horizon_months=None, dca_amount=0.0, dca_duration_months=None):
     full_horizon = calculate_strategy_horizon(strategy)
     effective_horizon = full_horizon if max_horizon_months is None else min(full_horizon, max_horizon_months)
+
+    if dca_duration_months is None:
+        dca_duration_months = effective_horizon - 1
 
     master_global_matrix = np.zeros((num_sim, effective_horizon))
     
