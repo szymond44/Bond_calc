@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import matplotlib.cm as cm
+from matplotlib.patches import Patch
 
 
 def plot_fanchart(stats_dict, time_horizon, tolerance_percent=5, title=None, segments=None):
@@ -69,12 +69,18 @@ def plot_cohorts(cohort_means, time_horizon, title=None):
     if not cohort_means:
         return fig
         
-    cmap = cm.get_cmap('viridis')
-    colors = [cmap(i / max(1, len(cohort_means) - 1)) for i in range(len(cohort_means))]
+    colors = []
+    for i in range(len(cohort_means)):
+        if i == 0:
+            colors.append('#1C3D5A')
+        elif i % 2 == 1:
+            colors.append('#4A90E2')
+        else:
+            colors.append('#7EB6FF')
     
-    ax.stackplot(months, *cohort_means, colors=colors, alpha=0.85)
+    ax.stackplot(months, *cohort_means, colors=colors, alpha=0.95, edgecolor='none')
     
-    ax.set_title(title or 'Rozbicie kapitału na poszczególne wpłaty (DCA)', fontsize=14, pad=15)
+    ax.set_title(title or 'Rozbicie kapitału: Wpłata startowa vs Miesięczne dopłaty', fontsize=14, pad=15)
     ax.set_xlabel('Miesiące', fontsize=12)
     ax.set_ylabel('Wartość portfela (PLN)', fontsize=12)
     
@@ -83,6 +89,12 @@ def plot_cohorts(cohort_means, time_horizon, title=None):
     
     for spine in ax.spines.values():
         spine.set_visible(False)
+        
+    legend_elements = [
+        Patch(facecolor='#1C3D5A', label='Kapitał początkowy i jego zyski'),
+        Patch(facecolor='#4A90E2', label='Miesięczne dopłaty (DCA) i ich zyski')
+    ]
+    ax.legend(handles=legend_elements, loc='upper left', frameon=True, facecolor='white', edgecolor='none')
         
     fig.tight_layout()
     return fig
