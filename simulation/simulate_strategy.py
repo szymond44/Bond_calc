@@ -13,6 +13,7 @@ def simulate_strategy(strategy, initial_capital, paths_mapping, num_sim, belka_t
         dca_duration_months = effective_horizon - 1
 
     master_global_matrix = np.zeros((num_sim, effective_horizon))
+    cohort_means = []
     
     actual_dca_duration = min(dca_duration_months, effective_horizon - 1) if dca_duration_months > 0 else 0
     total_invested = 0.0
@@ -74,5 +75,6 @@ def simulate_strategy(strategy, initial_capital, paths_mapping, num_sim, belka_t
             current_month = bond_end_global
 
         master_global_matrix += global_matrix
+        cohort_means.append(np.mean(global_matrix, axis=0))
 
-    return master_global_matrix, total_invested, effective_horizon, penalty_info
+    return master_global_matrix, total_invested, effective_horizon, penalty_info, cohort_means

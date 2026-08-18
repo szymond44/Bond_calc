@@ -1,17 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.cm as cm
 
 
 def plot_fanchart(stats_dict, time_horizon, tolerance_percent=5, title=None, segments=None):
-    """Builds the Monte Carlo fanchart figure and returns it (does not call plt.show()),
-    so it can be rendered inside Streamlit with st.pyplot(fig).
-
-    segments: optional list of dicts [{"name": str, "start": int, "end": int}, ...]
-    describing which bond covers which month range within the strategy. When provided,
-    drak black dashed lines + small labels mark where one bond ends and the next begins,
-    without altering the existing fanchart colors.
-    """
-
     mean_path = stats_dict["paths"]["mean"]
     worst_path = stats_dict["paths"]["worst"]
     best_path = stats_dict["paths"]["best"]
@@ -67,4 +59,30 @@ def plot_fanchart(stats_dict, time_horizon, tolerance_percent=5, title=None, seg
     ax.legend(loc='upper left')
     fig.tight_layout()
 
+    return fig
+
+
+def plot_cohorts(cohort_means, time_horizon, title=None):
+    months = np.arange(time_horizon)
+    fig, ax = plt.subplots(figsize=(11, 5.5), dpi=300)
+    
+    if not cohort_means:
+        return fig
+        
+    cmap = cm.get_cmap('viridis')
+    colors = [cmap(i / max(1, len(cohort_means) - 1)) for i in range(len(cohort_means))]
+    
+    ax.stackplot(months, *cohort_means, colors=colors, alpha=0.85)
+    
+    ax.set_title(title or 'Rozbicie kapitału na poszczególne wpłaty (DCA)', fontsize=14, pad=15)
+    ax.set_xlabel('Miesiące', fontsize=12)
+    ax.set_ylabel('Wartość portfela (PLN)', fontsize=12)
+    
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, loc: "{:,}".format(int(x)).replace(',', ' ')))
+    ax.grid(True, linestyle=':', alpha=0.6)
+    
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+        
+    fig.tight_layout()
     return fig

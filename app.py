@@ -14,7 +14,7 @@ from engine.strategy_horizon import calculate_strategy_horizon
 from simulation.simulate_strategy import simulate_strategy
 from visualisation.calculate_stats import calculate_statistics
 from visualisation.calculate_cash_erosion import calculate_cash_erosion_paths, cash_erosion_summary_at
-from visualisation.plot_chart import plot_fanchart
+from visualisation.plot_chart import plot_fanchart, plot_cohorts
 
 MAX_STRATEGIES = 4
 CALIBRATION_CUTOFF = "2005-01-01"
@@ -153,9 +153,7 @@ def run_simulation(saved, initial_capital, dca_amount, dca_duration_months, time
 
             strategy_bond_lists = [copy.deepcopy(strat["bonds"]) for strat in saved]
             horizon = max(calculate_strategy_horizon(s) for s in strategy_bond_lists)
-
             max_bond_length = max(b["timeframe_months"] for s in strategy_bond_lists for b in s)
-            
             macro_horizon = horizon + max_bond_length
 
             np.random.seed(seed)
@@ -174,7 +172,7 @@ def run_simulation(saved, initial_capital, dca_amount, dca_duration_months, time
 
             results = []
             for strat, strat_bonds in zip(saved, strategy_bond_lists):
-                global_matrix, strat_total_invested, effective_horizon, penalty_info = simulate_strategy(
+                global_matrix, strat_total_invested, effective_horizon, penalty_info, cohort_means = simulate_strategy(
                     strategy=strat_bonds,
                     initial_capital=initial_capital,
                     paths_mapping=paths_mapping,
@@ -207,6 +205,7 @@ def run_simulation(saved, initial_capital, dca_amount, dca_duration_months, time
                     "cash_erosion": cash_summary,
                     "penalty_info": penalty_info,
                     "total_invested": strat_total_invested,
+                    "cohort_means": cohort_means,
                 })
 
             st.session_state.results = results
@@ -445,29 +444,43 @@ if st.session_state.results:
             unsafe_allow_html=True,
         )
 
-    fig = plot_fanchart(
-        current_result["stats"],
-        current_result["horizon"],
-        title=f"Projekcja kapitału: {current_result['label']}",
-        segments=current_result["segments"],
-    )
-    st.pyplot(fig)
-    seq_txt = "  →  ".join(f"**{seg['name']}** (mies. {seg['start']}–{seg['end']})" for seg in current_result["segments"])
-    st.caption(f"Kolejność w strategii: {seq_txt}")
-    st.caption(f"Ustawienia: {current_result['settings_label']}.")
-    st.caption("Przerywane pionowe linie oznaczają moment, w którym kończy się jedna obligacja, a zaczyna kolejna w sekwencji.")
+    tab1, tab2 = st.tabs(["Wykres przedziałowy (Fanchart)", "Rozbicie na poszczególne wpłaty (DCA)"])
+    
+    with tab1:
+        fig1 = plot_fanchart(
+            current_result["stats"],
+            current_result["horizon"],
+            title=f"Projekcja kapitału: {current_result['label']}",
+            segments=current_result["segments"],
+        )
+        st.pyplot(fig1)
+        seq_txt = "  →  ".join(f"**{seg['name']}** (mies. {seg['start']}–{seg['end']})" for seg in current_result["segments"])
+        st.caption(f"Kolejność w strategii: {seq_txt}")
+        st.caption(f"Ustawienia: {current_result['settings_label']}.")
+        st.caption("Przerywane pionowe linie oznaczają moment, w którym kończy się jedna obligacja, a zaczyna kolejna w sekwencji.")
+
+    with tab2:
+        fig2 = plot_cohorts(
+            current_result["cohort_means"], 
+            current_result["horizon"], 
+            title=f"Rozbicie kapitału: {current_result['label']}"
+        )
+        st.pyplot(fig2)
+        st.caption("Wykres przedstawia poszczególne wpłaty z DCA jako warstwy nakładające się na siebie. Suma wszystkich warstw daje środkową linię oczekiwaną z wykresu głównego.")
 
     if current_result["penalty_info"] is not None:
         pi = current_result["penalty_info"]
+        h_text = f"{time_horizon_years} lat" if time_horizon_years is not None else "domyślny"
         st.warning(
-            f"Wybrany horyzont inwestycji jest krótszy niż pełna sekwencja "
+            f"Wybrany horyzont inwestycji ({h_text}) jest krótszy niż pełna sekwencja "
             f"obligacji ({current_result['full_horizon']} mies.). Symulacja została przycięta na "
             f"{current_result['horizon']} mies., co oznacza wcześniejszy wykup obligacji {pi['bond']}. "
             f"Naliczono karę za wcześniejszy wykup w wysokości {pi['rate']*100:.2f}%."
         )
     elif current_result["horizon"] < current_result["full_horizon"]:
+        h_text = f"{time_horizon_years} lat" if time_horizon_years is not None else "domyślny"
         st.info(
-            f"Wybrany horyzont inwestycji ({time_horizon_years} lat) jest krótszy niż pełna sekwencja "
+            f"Wybrany horyzont inwestycji ({h_text}) jest krótszy niż pełna sekwencja "
             f"obligacji ({current_result['full_horizon']} mies.). Symulacja została przycięta na "
             f"{current_result['horizon']} mies., dokładnie na końcu obligacji, więc kara za wcześniejszy "
             f"wykup nie została naliczona."
