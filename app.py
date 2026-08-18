@@ -473,13 +473,41 @@ if st.session_state.results:
     strat_full_horizon_years = current_result["full_horizon"] / 12
 
     if current_result["penalty_info"] is not None:
-        if current_result["full_horizon"] < max_full_horizon_months:
-            pi = current_result["penalty_info"]
+        pi = current_result["penalty_info"]
+        
+        if dca_amount > 0:
             st.warning(
-                f"Horyzont strategii ({strat_full_horizon_years:g} lat) jest krótszy niż najdłuższy horyzont z "
-                f"porównywanych strategii ({max_full_horizon_years:g} lat), co oznacza wcześniejszy wykup obligacji "
-                f"{pi['bond']}. Naliczono karę za wcześniejszy wykup w wysokości {pi['rate']*100:.2f}%."
+                f"W związku z włączonymi dopłatami (DCA), późniejsze wpłaty nie zdążyły ukończyć pełnego cyklu "
+                f"przed końcem symulacji. Wymusiło to wcześniejszy wykup obligacji {pi['bond']} dla nowszych wpłat. "
+                f"Naliczono karę w wysokości {pi['rate']*100:.2f}%."
             )
+        elif time_horizon_years is not None and time_horizon_years * 12 < current_result["full_horizon"]:
+            st.warning(
+                f"Wybrany horyzont inwestycji ({time_horizon_years} lat) jest krótszy niż pełna sekwencja "
+                f"obligacji ({strat_full_horizon_years:g} lat). Symulacja została przycięta, co oznacza "
+                f"wcześniejszy wykup obligacji {pi['bond']}. Naliczono karę w wysokości {pi['rate']*100:.2f}%."
+            )
+        else:
+            st.warning(
+                f"Symulacja została przycięta, co wymusiło wcześniejszy wykup obligacji {pi['bond']}. "
+                f"Naliczono karę w wysokości {pi['rate']*100:.2f}%."
+            )
+
+    elif current_result["horizon"] < current_result["full_horizon"]:
+        h_text = f"{time_horizon_years} lat" if time_horizon_years is not None else "domyślny"
+        st.info(
+            f"Wybrany horyzont ({h_text}) jest krótszy niż pełna sekwencja "
+            f"obligacji ({strat_full_horizon_years:g} lat). Symulacja została przycięta na "
+            f"{current_result['horizon']} mies., dokładnie na końcu jednej z obligacji, więc kara "
+            f"za wcześniejszy wykup nie została naliczona."
+        )
+
+    if current_result["full_horizon"] < max_full_horizon_months:
+        st.info(
+            f"Zwróć uwagę: Pełny czas trwania tej strategii ({strat_full_horizon_years:g} lat) jest krótszy "
+            f"niż najdłuższy horyzont z porównywanych strategii ({max_full_horizon_years:g} lat). "
+            f"Symulacja tej konkretnej ścieżki zakończyła się wcześniej."
+        )
 
     summary = current_result["stats"]["summary"]
     m1, m2, m3 = st.columns(3)
