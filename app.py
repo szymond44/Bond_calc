@@ -460,7 +460,7 @@ if st.session_state.results:
     if current_result["penalty_info"] is not None:
         pi = current_result["penalty_info"]
         st.warning(
-            f"Wybrany horyzont inwestycji ({time_horizon_years} lat) jest krótszy niż pełna sekwencja "
+            f"Wybrany horyzont inwestycji jest krótszy niż pełna sekwencja "
             f"obligacji ({current_result['full_horizon']} mies.). Symulacja została przycięta na "
             f"{current_result['horizon']} mies., co oznacza wcześniejszy wykup obligacji {pi['bond']}. "
             f"Naliczono karę za wcześniejszy wykup w wysokości {pi['rate']*100:.2f}%."
